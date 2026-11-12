@@ -23,13 +23,16 @@ if exist "dist" rmdir /s /q "dist"
 
 :: Compile with PyInstaller
 echo [3/3] Compiling standalone Pivora.exe...
-pyinstaller --noconsole --onefile --name "Pivora" --icon "app_icon.ico" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
+pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
 
 if %errorlevel% equ 0 (
+    if not exist "downloads" mkdir "downloads"
+    copy /y "dist\Pivora-Windows-x64.exe" "downloads\Pivora-Windows-x64.exe" >nul
     echo ==============================================
     echo [SUCCESS] Build complete!
-    echo Your standalone executable is ready:
-    echo   dist\Pivora.exe
+    echo Your standalone executable is ready in both:
+    echo   dist\Pivora-Windows-x64.exe
+    echo   downloads\Pivora-Windows-x64.exe
     echo ==============================================
 ) else (
     echo [ERROR] Build failed. Please check the logs above.
