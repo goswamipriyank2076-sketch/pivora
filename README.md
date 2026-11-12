@@ -6,6 +6,17 @@ Available for both **Windows** and **Linux**.
 
 ---
 
+## 🚀 Quick Download (Ready-to-Run • No Python Required)
+
+| Platform | Download Link | Quick Instructions |
+|---|---|---|
+| **🪟 Windows (10 / 11)** | [📥 **Download Pivora-Windows-x64.exe**](https://github.com/goswamipriyank2076-sketch/pivora/releases/latest/download/Pivora-Windows-x64.exe) | Double-click to run! |
+| **🐧 Linux / Ubuntu** | [📥 **Download Pivora-Linux-x86_64**](https://github.com/goswamipriyank2076-sketch/pivora/releases/latest/download/Pivora-Linux-x86_64) | Mark executable (`chmod +x`) & double-click! |
+
+> 💡 *Files are also available locally in the [`downloads/`](./downloads) folder or on the [GitHub Releases](https://github.com/goswamipriyank2076-sketch/pivora/releases) page.*
+
+---
+
 ## ✨ Features
 
 - **Animated Mascot Overlay:** A friendly 3D animated character walks directly onto your active screen to remind you to drink water.
