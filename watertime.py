@@ -49,6 +49,23 @@ BTN_SKIP    = "#78909C"
 
 
 # ─────────────────────────────────────────────────────────────────
+# Single Instance Lock
+# ─────────────────────────────────────────────────────────────────
+_instance_socket = None
+
+def ensure_single_instance(port=47892):
+    """Ensure only one instance of the app runs at a time."""
+    global _instance_socket
+    import socket
+    _instance_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _instance_socket.bind(("127.0.0.1", port))
+    except socket.error:
+        print("[Pivora] Another instance is already running. Exiting duplicate.")
+        sys.exit(0)
+
+
+# ─────────────────────────────────────────────────────────────────
 # Text to Speech Voice (Disabled as requested)
 # ─────────────────────────────────────────────────────────────────
 def speak(text: str):
@@ -508,7 +525,8 @@ class WatertimeApp:
         self.root.title("Watertime 💧 - Dashboard & Settings")
         self.root.resizable(False, False)
         self.root.configure(bg=BG_COLOR)
-        self.root.protocol("WM_DELETE_WINDOW", self.hide_dashboard)
+        # Clicking [X] now completely QUITS the app cleanly
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
         self._build_dashboard()
         self._center_window(440, 520)
@@ -759,9 +777,21 @@ class WatertimeApp:
         self.root.after(1000, self._check_timer_loop)
 
     def quit_app(self, icon=None, item=None):
+        global _instance_socket
         if self.tray:
-            self.tray.stop()
-        self.root.destroy()
+            try:
+                self.tray.stop()
+            except Exception:
+                pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+        if _instance_socket:
+            try:
+                _instance_socket.close()
+            except Exception:
+                pass
         os._exit(0)
 
     def run(self):
@@ -775,5 +805,6 @@ class WatertimeApp:
 
 
 if __name__ == "__main__":
+    ensure_single_instance()
     app = WatertimeApp()
     app.run()
