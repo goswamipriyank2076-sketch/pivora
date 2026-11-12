@@ -589,18 +589,10 @@ def create_tray_icon_image(count=0, goal=8, size=64):
 def load_gif_frames(master, target_h=320):
     FRAMES_DIR.mkdir(parents=True, exist_ok=True)
     frames_paths = sorted(list(FRAMES_DIR.glob("frame_*.png")))
-    
-    # Check if frames need to be regenerated as true transparent RGBA
+
     need_regen = False
     if not frames_paths:
         need_regen = True
-    else:
-        try:
-            with Image.open(frames_paths[0]) as test_im:
-                if test_im.mode != "RGBA":
-                    need_regen = True
-        except Exception:
-            need_regen = True
 
     if need_regen and GIF_PATH.exists():
         gif = Image.open(GIF_PATH)
@@ -610,22 +602,27 @@ def load_gif_frames(master, target_h=320):
             w, h = rgba.size
             target_w = int(w * (target_h / h))
             resized = rgba.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            r, g, b, a = resized.split()
+            mask = a.point(lambda p: 255 if p > 128 else 0)
+            clean_rgba = Image.merge("RGBA", (r, g, b, mask))
             fpath = FRAMES_DIR / f"frame_{i:02d}.png"
-            resized.save(fpath)
+            clean_rgba.save(fpath)
         frames_paths = sorted(list(FRAMES_DIR.glob("frame_*.png")))
 
     tk_frames = []
     for p in frames_paths:
         try:
             im = Image.open(p).convert("RGBA")
+            r, g, b, a = im.split()
+            mask = a.point(lambda p: 255 if p > 128 else 0)
             if sys.platform == "win32":
-                # On Windows, composite transparent pixels cleanly onto TRANS_COLOR for GDI colorkey transparency
-                bg = Image.new("RGBA", im.size, (1, 1, 1, 255))
-                comp = Image.alpha_composite(bg, im)
-                tk_frames.append(ImageTk.PhotoImage(comp, master=master))
+                # On Windows, paste cleanly with binary mask onto (1, 1, 1) to eliminate any dark border
+                out = Image.new("RGB", im.size, (1, 1, 1))
+                out.paste(im, mask=mask)
+                tk_frames.append(ImageTk.PhotoImage(out, master=master))
             else:
-                # On Linux / macOS, keep true transparent alpha channel
-                tk_frames.append(ImageTk.PhotoImage(im, master=master))
+                clean_rgba = Image.merge("RGBA", (r, g, b, mask))
+                tk_frames.append(ImageTk.PhotoImage(clean_rgba, master=master))
         except Exception as e:
             print(f"[Pivora] Error loading frame {p}: {e}")
     return tk_frames
@@ -699,25 +696,26 @@ class MascotOverlay:
         self.bubble_photo = None
         self.bubble_item = self.canvas.create_image(self.w // 2, 45, image=None)
 
-        # Action Buttons
+        # Action Buttons (Modern Flat Pill Buttons, No Clunky 3D Borders)
         self.btn_frame_w = tk.Frame(self.win, bg=overlay_bg)
         self.btn_yes = tk.Button(
-            self.btn_frame_w, text="  💧 Drink (YES)  ",
-            font=("Segoe UI", 10, "bold"),
-            bg="#0288D1", fg="#FFFFFF",
-            activebackground="#0277BD", activeforeground="#FFFFFF",
-            relief="raised", bd=2, cursor="hand2",
-            padx=10, pady=4, command=self.on_yes
+            self.btn_frame_w, text="💧 Drink (YES)",
+            font=("Segoe UI", 9, "bold"),
+            bg=OCEAN_BLUE, fg="#FFFFFF",
+            activebackground=OCEAN_DARK, activeforeground="#FFFFFF",
+            relief="flat", bd=0, cursor="hand2",
+            padx=14, pady=5, command=self.on_yes
         )
-        self.btn_yes.pack(side="left", padx=6)
+        self.btn_yes.pack(side="left", padx=4)
 
         self.btn_later = tk.Button(
             self.btn_frame_w, text="Remind later",
             font=("Segoe UI", 9),
-            bg="#ECEFF1", fg="#455A64",
-            activebackground="#CFD8DC", activeforeground="#263238",
-            relief="raised", bd=2, cursor="hand2",
-            padx=8, pady=4, command=self.on_later
+            bg="#FFFFFF", fg=TEXT_SECONDARY,
+            activebackground="#F0F9FF", activeforeground=TEXT_DARK,
+            highlightthickness=1, highlightbackground=CARD_BORDER,
+            relief="flat", bd=0, cursor="hand2",
+            padx=10, pady=4, command=self.on_later
         )
         self.btn_later.pack(side="left", padx=4)
 
