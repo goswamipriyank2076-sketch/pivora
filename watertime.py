@@ -260,7 +260,7 @@ def load_gif_frames(master, target_h=320):
 
 
 class MascotOverlay:
-    """Borderless, transparent window where the 3D animated boy walks from Left to Right into the screen center."""
+    """Borderless, transparent window where the 3D animated boy walks from Right to Left into the screen center."""
 
     WALK_FRAMES = [0, 1, 8, 1]                    # Pure footstep walking cycle holding bottle
     DRINK_FRAMES = [2, 3, 4, 5, 6, 5, 6, 7, 8]    # Raises bottle, drinks refreshing sips, smiles
@@ -288,7 +288,7 @@ class MascotOverlay:
         # Target center of screen!
         self.target_x = (self.sw - self.w) // 2
         self.target_y = (self.sh - self.h) // 2
-        self.curr_x = -self.w
+        self.curr_x = self.sw
         self.curr_y = self.target_y
         self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
         self.win.withdraw()
@@ -350,7 +350,7 @@ class MascotOverlay:
         self.total_ticks = 0
 
     def trigger(self):
-        """Start the walking animation into the screen from the Left."""
+        """Start the walking animation into the screen from the Right."""
         if self.is_active:
             return
         self.is_active = True
@@ -371,14 +371,14 @@ class MascotOverlay:
             self.canvas.itemconfig(self.char_id, image=self.frames[0])
             self.canvas.coords(self.char_id, self.w // 2, 265)
 
-        # Start from the LEFT edge of the screen
-        self.curr_x = -self.w
+        # Start from the RIGHT edge of the screen
+        self.curr_x = self.sw
         self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
         self.win.deiconify()
         self.win.lift()
         self.win.wm_attributes("-topmost", True)
 
-        # Start walking cycle & moving Left to Right
+        # Start walking cycle & moving Right to Left
         self._cycle_walk()
         self._walk_in_step()
 
@@ -393,12 +393,12 @@ class MascotOverlay:
         self.anim_job = self.win.after(150, self._cycle_walk)
 
     def _walk_in_step(self):
-        """Move from Left to Right toward screen center with footstep bobbing."""
+        """Move from Right to Left toward screen center with footstep bobbing."""
         if not self.is_active:
             return
         speed = 7
-        if self.curr_x < self.target_x:
-            self.curr_x = min(self.target_x, self.curr_x + speed)
+        if self.curr_x > self.target_x:
+            self.curr_x = max(self.target_x, self.curr_x - speed)
             self.total_ticks += 1
             # Human vertical bobbing synced with steps (4px bounce)
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
@@ -466,7 +466,7 @@ class MascotOverlay:
         self.canvas.itemconfigure(self.text_shadow, state="hidden")
         self.canvas.itemconfigure(self.text_main, state="hidden")
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        # Resume pure walking cycle and walk out towards the RIGHT
+        # Resume pure walking cycle and walk out towards the LEFT
         self.step_idx = 0
         self.total_ticks = 0
         self._cycle_walk()
@@ -476,8 +476,8 @@ class MascotOverlay:
         if not self.is_active:
             return
         speed = 7
-        if self.curr_x < self.sw + 50:
-            self.curr_x += speed
+        if self.curr_x > -self.w - 50:
+            self.curr_x -= speed
             self.total_ticks += 1
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
             if self.char_id:
@@ -485,7 +485,7 @@ class MascotOverlay:
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
             self.move_job = self.win.after(22, self._walk_out_step)
         else:
-            # Fully off-screen on the right
+            # Fully off-screen on the left
             if self.anim_job:
                 self.win.after_cancel(self.anim_job)
                 self.anim_job = None
