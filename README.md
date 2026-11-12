@@ -15,7 +15,9 @@ Available for both **Windows** and **Linux**.
 - **Custom Goal & Litres Counter:** Set daily targets (6, 8, 10, 12, 14 glasses) with automatic Litres (L) calculations (250ml/glass).
 - **Meeting / Snooze / DND Mode (🔕):** Quick 30m, 1h, or 2h snooze directly from the System Tray and Dashboard.
 - **Active Hours Schedule:** Set customizable working hours (e.g. 09:00 to 21:00) so reminders never interrupt your sleep.
-- **Interactive Prompts:** Quick `YES` and `Remind me later` buttons with positive feedback.
+- **Quick Log Global Hotkey (⌨️ `Ctrl + Alt + W`):** Press `Ctrl + Alt + W` from anywhere on your PC to instantly log a glass of water without opening any window, complete with an on-screen floating toast notification!
+- **Dynamic Tray Icon with Live Badge (🏷️):** The taskbar tray icon dynamically displays your current glass count in a color-coded numerical badge (orange -> green when target reached).
+- **Dynamic Tray Tooltip:** Hovering over the tray icon displays your live glass count, volume in litres, and countdown to the next reminder.
 - **System Tray Quick Controls:** Adjust intervals, snooze reminders, or test animations directly from your taskbar.
 - **Auto-Start on Boot:** Toggle automatic startup on system boot with a single click.
 - **Cross-Platform:** Native support for both **Windows** and **Linux**.
