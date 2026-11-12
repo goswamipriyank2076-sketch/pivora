@@ -17,6 +17,16 @@ from tkinter import ttk
 from datetime import date, timedelta
 from pathlib import Path
 
+# Ensure Windows Taskbar & Action Center recognize Pivora rather than Python host
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "PivoraApp.WaterReminder.1.0"
+        )
+    except Exception:
+        pass
+
 try:
     import pystray
     from PIL import Image, ImageTk, ImageDraw, ImageFont
