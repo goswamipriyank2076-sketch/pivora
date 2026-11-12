@@ -60,19 +60,35 @@ VSVersionInfo(
     VERSION_FILE.write_text(content, encoding="utf-8")
     print(f"✅ Updated version_info.txt to {full_ver}")
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python release.py <version> [release_notes]")
-        print("Example: python release.py 1.0.5 'Fix mascot border and goal startup'")
-        sys.exit(1)
+def get_next_auto_version():
+    try:
+        res = subprocess.run(["git", "tag", "--sort=-v:refname"], capture_output=True, text=True, check=True)
+        tags = [t.strip().lstrip("v") for t in res.stdout.splitlines() if t.strip() and re.match(r"^v?\d+\.\d+", t.strip())]
+        if tags:
+            latest = tags[0]
+            parts = [int(p) for p in latest.split(".") if p.isdigit()]
+            while len(parts) < 3:
+                parts.append(0)
+            parts[-1] += 1
+            return ".".join(str(p) for p in parts)
+    except Exception:
+        pass
+    return "1.0.6"
 
-    raw_ver = sys.argv[1].lstrip("v")
+def main():
+    # If version not specified, automatically calculate next version (e.g. 1.0.5 -> 1.0.6)
+    if len(sys.argv) >= 2 and not sys.argv[1].startswith("-"):
+        raw_ver = sys.argv[1].lstrip("v")
+        message = sys.argv[2] if len(sys.argv) > 2 else f"Release v{raw_ver}"
+    else:
+        raw_ver = get_next_auto_version()
+        message = sys.argv[1] if (len(sys.argv) >= 2 and sys.argv[1].startswith("-m")) else f"Automated Release v{raw_ver}"
+
     if not re.match(r"^\d+\.\d+(?:\.\d+)?$", raw_ver):
-        print(f"❌ Invalid version format '{raw_ver}'. Please use format like 1.0.5 or 1.1.0")
+        print(f"❌ Invalid version format '{raw_ver}'. Please use format like 1.0.6 or 1.1.0")
         sys.exit(1)
 
     tag_name = f"v{raw_ver}"
-    message = sys.argv[2] if len(sys.argv) > 2 else f"Release {tag_name}"
 
     print("=" * 60)
     print(f"  🚀 Releasing Pivora {tag_name}")
@@ -105,3 +121,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
