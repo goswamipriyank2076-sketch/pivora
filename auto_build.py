@@ -28,6 +28,7 @@ def run_build():
         "--onefile",
         "--name", "Pivora-Windows-x64",
         "--icon", "app_icon.ico",
+        "--version-file", "version_info.txt",
         "--add-data", "Animated Boy Walking and Drinking Water.gif;.",
         "--add-data", "gif_frames;gif_frames",
         "--add-data", "app_icon.png;.",

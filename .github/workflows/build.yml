@@ -27,7 +27,7 @@ jobs:
 
       - name: Build Pivora.exe with PyInstaller
         run: |
-          pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
+          pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --version-file "version_info.txt" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
 
       - name: Upload Windows Executable
         uses: actions/upload-artifact@v4
