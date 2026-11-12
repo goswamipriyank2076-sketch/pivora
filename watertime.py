@@ -468,15 +468,19 @@ def set_autostart(enable: bool):
         desktop_file = autostart_dir / "watertime.desktop"
         if enable:
             autostart_dir.mkdir(parents=True, exist_ok=True)
-            script_path = Path(__file__).resolve()
+            if getattr(sys, "frozen", False):
+                exec_cmd = f'"{sys.executable}" --minimized'
+            else:
+                script_path = Path(__file__).resolve()
+                exec_cmd = f'python3 "{script_path}" --minimized'
             content = f"""[Desktop Entry]
 Type=Application
-Exec=python3 "{script_path}" --minimized
+Exec={exec_cmd}
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-Name=Watertime
-Comment=Water Drink Reminder
+Name=Pivora 💧
+Comment=Daily Water Drink Reminder
 """
             desktop_file.write_text(content, encoding="utf-8")
         else:
