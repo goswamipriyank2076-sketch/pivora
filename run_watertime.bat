@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 
-:: 1. Check Python installation
+REM 1. Check Python installation
 where python >nul 2>nul
 if %errorlevel% neq 0 (
     echo [ERROR] Python is not installed or not added to PATH.
@@ -10,10 +10,10 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: 2. Check and install dependencies if missing
+REM 2. Check and install dependencies if missing
 python -c "import pystray, PIL" >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [Watertime] Installing required libraries (Pillow, pystray)...
+    echo [Watertime] Installing required libraries Pillow and pystray...
     pip install -r requirements.txt
     if %errorlevel% neq 0 (
         echo [ERROR] Failed to install dependencies.
@@ -22,11 +22,12 @@ if %errorlevel% neq 0 (
     )
 )
 
-:: 3. Launch Watertime in background
+REM 3. Launch Watertime
+echo [Pivora] Starting Watertime...
 where pythonw >nul 2>nul
 if %errorlevel% equ 0 (
     start "" pythonw watertime.py
 ) else (
     start "" python watertime.py
 )
-exit
+exit /b 0
