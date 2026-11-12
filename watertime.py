@@ -830,7 +830,7 @@ class WatertimeApp:
 
         self._init_theme()
         self._build_dashboard()
-        self._center_window(490, 540)
+        self._center_window(490, 620)
 
         # Mascot Overlay (Screen Walker)
         self.mascot = MascotOverlay(self.root, self.data, on_close=self.on_mascot_closed)
@@ -1048,32 +1048,15 @@ class WatertimeApp:
         # ── TAB 2: Preferences & Schedule ──
         self.tab_pref = tk.Frame(self.container, bg=BG_MAIN)
 
-        # Scrollable inner frame for preferences
-        pref_canvas = tk.Canvas(self.tab_pref, bg=BG_MAIN, highlightthickness=0, bd=0)
-        pref_scroll = tk.Scrollbar(self.tab_pref, orient="vertical", command=pref_canvas.yview)
-        pref_canvas.configure(yscrollcommand=pref_scroll.set)
-        pref_canvas.pack(side="left", fill="both", expand=True)
-
-        pref_inner = tk.Frame(pref_canvas, bg=BG_MAIN)
-        pref_inner_window = pref_canvas.create_window((0, 0), window=pref_inner, anchor="nw")
-
-        def _on_pref_resize(event):
-            pref_canvas.itemconfig(pref_inner_window, width=event.width)
-        def _on_pref_configure(event):
-            pref_canvas.configure(scrollregion=pref_canvas.bbox("all"))
-        pref_canvas.bind("<Configure>", _on_pref_resize)
-        pref_inner.bind("<Configure>", _on_pref_configure)
-
-        def _pref_mousewheel(event):
-            pref_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        pref_canvas.bind("<MouseWheel>", _pref_mousewheel)
-        pref_inner.bind("<MouseWheel>", _pref_mousewheel)
+        # Flat (no-scroll) inner frame for preferences
+        pref_inner = tk.Frame(self.tab_pref, bg=BG_MAIN)
+        pref_inner.pack(fill="both", expand=True, padx=0, pady=0)
 
         # Card 1: Profile & Daily Target
-        card_p1 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
-        card_p1.pack(fill="x", pady=(0, 8))
+        card_p1 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p1.pack(fill="x", pady=(0, 6))
 
-        tk.Label(card_p1, text="👤  PERSONAL PROFILE & TARGET", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
+        tk.Label(card_p1, text="👤  PERSONAL PROFILE & TARGET", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 4))
 
         # Name row
         r_name = tk.Frame(card_p1, bg=CARD_BG)
@@ -1114,10 +1097,10 @@ class WatertimeApp:
         self.combo_goal.pack(side="left", padx=4)
 
         # Card 2: Schedule & Quiet Hours
-        card_p2 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
-        card_p2.pack(fill="x", pady=(0, 8))
+        card_p2 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p2.pack(fill="x", pady=(0, 6))
 
-        tk.Label(card_p2, text="⏰  REMINDERS & SCHEDULE", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
+        tk.Label(card_p2, text="⏰  REMINDERS & SCHEDULE", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 4))
 
         # Interval row
         r_int = tk.Frame(card_p2, bg=CARD_BG)
@@ -1176,9 +1159,9 @@ class WatertimeApp:
         self.combo_h_end.pack(side="left", padx=4)
 
         tk.Label(
-            card_p2, text="💡 Outside active hours, character reminders are paused so you can sleep peacefully.",
-            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, wraplength=410, justify="left"
-        ).pack(anchor="w", pady=(3, 0))
+            card_p2, text="💡 Outside active hours, reminders are paused.",
+            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, justify="left"
+        ).pack(anchor="w", pady=(2, 0))
 
         # Meeting Mode & Screen Share Auto-Pause
         self.var_meeting_mode = tk.BooleanVar(value=self.data.pause_on_meeting)
@@ -1189,18 +1172,18 @@ class WatertimeApp:
             activebackground=CARD_BG, selectcolor="#F0F9FF",
             command=self.on_meeting_mode_toggled
         )
-        chk_meeting.pack(anchor="w", pady=(6, 0))
+        chk_meeting.pack(anchor="w", pady=(4, 0))
 
         tk.Label(
-            card_p2, text="🛡️ Mascot automatically stays quiet during Zoom, Teams, Google Meet, or presentations.",
-            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, wraplength=410, justify="left"
+            card_p2, text="🛡️ Auto-pauses during Zoom, Teams, Meet, or presentations.",
+            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, justify="left"
         ).pack(anchor="w", pady=(1, 0))
 
         # Card 3: System & Quick Controls
-        card_p3 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p3 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
         card_p3.pack(fill="x", pady=(0, 4))
 
-        tk.Label(card_p3, text="⚡  SYSTEM & SHORTCUTS", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
+        tk.Label(card_p3, text="⚡  SYSTEM & SHORTCUTS", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 4))
 
         self.var_autostart = tk.BooleanVar(value=is_autostart_enabled())
         autostart_text = "Start Pivora automatically on PC boot" if sys.platform == "win32" else "Start Pivora automatically on Linux startup"
@@ -1216,10 +1199,10 @@ class WatertimeApp:
         tk.Label(
             card_p3, text="⌨️ Hotkey: Ctrl + Alt + W  —  Log a glass from anywhere",
             font=("Segoe UI", 8), fg=TEXT_MUTED, bg=CARD_BG
-        ).pack(anchor="w", pady=(6, 4))
+        ).pack(anchor="w", pady=(4, 2))
 
         r_reset_row = tk.Frame(card_p3, bg=CARD_BG)
-        r_reset_row.pack(fill="x", pady=(4, 2))
+        r_reset_row.pack(fill="x", pady=(2, 0))
 
         btn_reset_cnt = tk.Button(
             r_reset_row, text="🔄 Reset Today's Count to 0", font=("Segoe UI", 8, "bold"),
@@ -1233,13 +1216,6 @@ class WatertimeApp:
             r_reset_row, text="(Clears today's glasses back to 0)",
             font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG
         ).pack(side="left", padx=8)
-
-        # Bind mousewheel to all children of pref_inner for smooth scrolling
-        def _bind_scroll_children(widget):
-            widget.bind("<MouseWheel>", _pref_mousewheel)
-            for child in widget.winfo_children():
-                _bind_scroll_children(child)
-        _bind_scroll_children(pref_inner)
 
         # Show initial tab
         self.tab_tracker.pack(fill="both", expand=True)
