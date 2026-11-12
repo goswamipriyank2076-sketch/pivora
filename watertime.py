@@ -691,14 +691,49 @@ class WatertimeApp:
         if self.tray:
             self.tray.title = f"Watertime 💧 — {self.data.count}/{self.data.goal} glasses"
 
+    def set_interval_from_tray(self, mins):
+        self.data.set_interval(mins)
+        self.next_reminder_time = time.time() + (mins * 60)
+        self.root.after(0, self._sync_interval_ui)
+
+    def _sync_interval_ui(self):
+        current_mins = self.data.interval_minutes
+        found_key = None
+        for k, v in self.interval_options.items():
+            if v == current_mins:
+                found_key = k
+                break
+        self.combo_interval.set(found_key or f"{current_mins} mins")
+        self.lbl_sub.config(text=f"Walking character will pop up every {current_mins} minutes directly on your screen!")
+
     # ── Tray Initialization ──
     def _init_tray(self):
         try:
             icon_img = create_tray_icon_image(64)
+
+            def make_interval_item(label, mins):
+                return pystray.MenuItem(
+                    label,
+                    lambda icon, item, m=mins: self.set_interval_from_tray(m),
+                    checked=lambda item, m=mins: self.data.interval_minutes == m
+                )
+
+            interval_menu = pystray.Menu(
+                make_interval_item("1 min (Test)", 1),
+                make_interval_item("5 mins", 5),
+                make_interval_item("10 mins", 10),
+                make_interval_item("15 mins", 15),
+                make_interval_item("20 mins", 20),
+                make_interval_item("30 mins", 30),
+                make_interval_item("45 mins", 45),
+                make_interval_item("60 mins", 60),
+            )
+
             menu = pystray.Menu(
                 pystray.MenuItem("💧 Watertime Active", None, enabled=False),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("🚶 Show Mascot Now", lambda: self.root.after(0, self.test_mascot_now)),
+                pystray.MenuItem("⏱️ Change Interval", interval_menu),
                 pystray.MenuItem("⚙️ Open Settings", self.show_dashboard),
                 pystray.MenuItem("🔄 Reset Today's Count", self.reset_count),
                 pystray.Menu.SEPARATOR,
