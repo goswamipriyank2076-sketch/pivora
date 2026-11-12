@@ -1,0 +1,92 @@
+name: Build Cross-Platform Binaries (Windows & Linux)
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows (.exe)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Pivora.exe with PyInstaller
+        run: |
+          pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
+
+      - name: Upload Windows Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pivora-Windows-x64
+          path: dist/Pivora-Windows-x64.exe
+
+  build-linux:
+    name: Build Linux Executable
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install system dependencies for Tkinter & System Tray
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk libayatana-appindicator3-1
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Pivora for Linux with PyInstaller
+        run: |
+          pyinstaller --noconsole --onefile --name "Pivora-Linux-x86_64" --add-data "Animated Boy Walking and Drinking Water.gif:." --add-data "gif_frames:gif_frames" --add-data "app_icon.png:." watertime.py
+          chmod +x dist/Pivora-Linux-x86_64
+
+      - name: Upload Linux Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pivora-Linux-x86_64
+          path: dist/Pivora-Linux-x86_64
+
+  create-release:
+    name: Publish Release (on Git Tag)
+    needs: [build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Create Release and Upload Binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/Pivora-Windows-x64/Pivora-Windows-x64.exe
+            release-artifacts/Pivora-Linux-x86_64/Pivora-Linux-x86_64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

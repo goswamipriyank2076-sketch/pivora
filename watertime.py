@@ -26,7 +26,11 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────
 # Constants & Colors
 # ─────────────────────────────────────────────────────────────────
-BASE_DIR                 = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys._MEIPASS)
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+
 GIF_PATH                 = BASE_DIR / "Animated Boy Walking and Drinking Water.gif"
 FRAMES_DIR               = BASE_DIR / "gif_frames"
 DATA_FILE                = Path.home() / ".watertime_data.json"
@@ -270,7 +274,10 @@ class MascotOverlay:
         self.win = tk.Toplevel(master)
         self.win.overrideredirect(True)
         self.win.wm_attributes("-topmost", True)
-        self.win.wm_attributes("-transparentcolor", TRANS_COLOR)
+        try:
+            self.win.wm_attributes("-transparentcolor", TRANS_COLOR)
+        except Exception:
+            pass
         self.win.configure(bg=TRANS_COLOR)
 
         self.w = 340

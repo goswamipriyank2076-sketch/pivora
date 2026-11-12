@@ -7,6 +7,11 @@ __pycache__/
 env/
 venv/
 
+# PyInstaller Build Output
+build/
+dist/
+*.spec
+
 # Watertime User Data
 .watertime_data.json
 
