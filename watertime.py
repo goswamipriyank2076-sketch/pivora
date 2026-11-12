@@ -103,13 +103,12 @@ def load_app_icon_image(size=38):
             pass
     return None
 
-def load_dashboard_mascot_image(target_h=155):
+def load_dashboard_mascot_image(target_h=150):
     """Load smiling mascot character from GIF frame with clean transparent composite."""
     if not GIF_PATH.exists():
         return None
     try:
         gif = Image.open(GIF_PATH)
-        # Frame 8 is smiling holding water bottle
         frame_idx = 8 if getattr(gif, "n_frames", 1) > 8 else 0
         gif.seek(frame_idx)
         rgba = gif.convert("RGBA")
@@ -119,7 +118,6 @@ def load_dashboard_mascot_image(target_h=155):
         target_w = int(w * (target_h / h))
         resized = cropped.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-        # Composite cleanly on white card background
         card_img = Image.new("RGBA", (target_w, target_h), (255, 255, 255, 255))
         card_img.paste(resized, (0, 0), resized)
         return card_img
@@ -136,12 +134,9 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
     bx2, by2 = w - 5, h - 14
     r = 16
 
-    # Soft drop shadow
     draw.rounded_rectangle([bx1 + 1, by1 + 2, bx2 + 1, by2 + 2], radius=r, fill=(0, 0, 0, 25))
-    # Crisp white bubble body with ocean blue border
     draw.rounded_rectangle([bx1, by1, bx2, by2], radius=r, fill=(255, 255, 255, 255), outline=(2, 136, 209, 255), width=2)
 
-    # Pointer tail pointing towards mascot head
     cx = w // 2
     tail_pts = [(cx - 9, by2 - 1), (cx + 9, by2 - 1), (cx, by2 + 11)]
     draw.polygon(tail_pts, fill=(255, 255, 255, 255), outline=(2, 136, 209, 255))
@@ -157,12 +152,10 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
         text_font = ImageFont.load_default()
         emoji_font = text_font
 
-    # Line 1 Title
     t1_box = draw.textbbox((0, 0), title, font=text_font)
     t1_w = t1_box[2] - t1_box[0]
     draw.text(((w - t1_w) // 2, 13), title, font=text_font, fill=(1, 87, 155, 255))
 
-    # Line 2 Subtitle with Full-Color Emoji
     if subtitle:
         l2_box = draw.textbbox((0, 0), subtitle, font=text_font)
         l2_w = l2_box[2] - l2_box[0]
@@ -711,13 +704,14 @@ class MascotOverlay:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Handcrafted Consumer Dashboard
+# Handcrafted Consumer Dashboard with Modern Tab Navigation
 # ─────────────────────────────────────────────────────────────────
 class WatertimeApp:
     def __init__(self):
         self.data = WaterData()
         self.dnd_until = 0
         self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
+        self.active_tab = "tracker"
 
         # Root Window
         self.root = tk.Tk()
@@ -728,7 +722,7 @@ class WatertimeApp:
 
         self._init_theme()
         self._build_dashboard()
-        self._center_window(480, 660)
+        self._center_window(490, 580)
 
         # Mascot Overlay (Screen Walker)
         self.mascot = MascotOverlay(self.root, self.data, on_close=self.on_mascot_closed)
@@ -768,14 +762,13 @@ class WatertimeApp:
     def _build_dashboard(self):
         # 1. Header with Real App Icon & Streak
         header_frame = tk.Frame(self.root, bg=BG_MAIN)
-        header_frame.pack(fill="x", padx=22, pady=(14, 6))
+        header_frame.pack(fill="x", padx=20, pady=(12, 4))
 
-        # Brand on left
         brand_f = tk.Frame(header_frame, bg=BG_MAIN)
         brand_f.pack(side="left")
 
         # Load real App Icon
-        icon_img = load_app_icon_image(38)
+        icon_img = load_app_icon_image(36)
         if icon_img:
             self.tk_app_icon = ImageTk.PhotoImage(icon_img, master=self.root)
             lbl_icon = tk.Label(brand_f, image=self.tk_app_icon, bg=BG_MAIN)
@@ -786,11 +779,11 @@ class WatertimeApp:
 
         tk.Label(
             title_text_f, text="Pivora",
-            font=("Segoe UI", 18, "bold"), fg=OCEAN_DARK, bg=BG_MAIN
+            font=("Segoe UI", 16, "bold"), fg=OCEAN_DARK, bg=BG_MAIN
         ).pack(anchor="w")
 
         tk.Label(
-            title_text_f, text="Your Daily Water Companion",
+            title_text_f, text="Daily Water Companion",
             font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_MAIN
         ).pack(anchor="w")
 
@@ -798,21 +791,47 @@ class WatertimeApp:
         self.lbl_streak = tk.Label(
             header_frame, text=f"🔥 {self.data.streak} Day Streak",
             font=("Segoe UI", 9, "bold"), fg="#B45309", bg="#FEF3C7",
-            padx=12, pady=5, relief="flat", highlightthickness=1, highlightbackground="#FDE68A"
+            padx=10, pady=4, relief="flat", highlightthickness=1, highlightbackground="#FDE68A"
         )
         self.lbl_streak.pack(side="right")
 
+        # 2. Sleek Segmented Tab Selector Bar
+        tab_nav_frame = tk.Frame(self.root, bg="#E0F2FE", padx=3, pady=3, highlightthickness=1, highlightbackground=CARD_BORDER)
+        tab_nav_frame.pack(fill="x", padx=20, pady=(4, 8))
+
+        self.btn_tab_tracker = tk.Button(
+            tab_nav_frame, text="💧 Today's Tracker", font=("Segoe UI", 9, "bold"),
+            bg="#FFFFFF", fg=OCEAN_BLUE, activebackground="#FFFFFF", activeforeground=OCEAN_BLUE,
+            relief="flat", bd=0, padx=14, pady=5, cursor="hand2",
+            command=lambda: self.switch_tab("tracker")
+        )
+        self.btn_tab_tracker.pack(side="left", expand=True, fill="x", padx=2)
+
+        self.btn_tab_pref = tk.Button(
+            tab_nav_frame, text="⚙️ Preferences & Schedule", font=("Segoe UI", 9, "bold"),
+            bg="#E0F2FE", fg=TEXT_MUTED, activebackground="#BAE6FD", activeforeground=TEXT_DARK,
+            relief="flat", bd=0, padx=14, pady=5, cursor="hand2",
+            command=lambda: self.switch_tab("pref")
+        )
+        self.btn_tab_pref.pack(side="left", expand=True, fill="x", padx=2)
+
+        # 3. Main Content Container
+        self.container = tk.Frame(self.root, bg=BG_MAIN)
+        self.container.pack(fill="both", expand=True, padx=20)
+
+        # ── TAB 1: Today's Tracker ──
+        self.tab_tracker = tk.Frame(self.container, bg=BG_MAIN)
+
         # Status & Snooze Row
-        status_bar = tk.Frame(self.root, bg=BG_MAIN)
-        status_bar.pack(fill="x", padx=22, pady=(0, 8))
+        status_bar = tk.Frame(self.tab_tracker, bg=BG_MAIN)
+        status_bar.pack(fill="x", pady=(0, 6))
 
         self.lbl_status = tk.Label(
-            status_bar, text="🟢 Active (Next reminder in 5m)",
+            status_bar, text="🟢 Active (Next in 5m)",
             font=("Segoe UI", 9, "bold"), fg="#059669", bg=BG_MAIN
         )
         self.lbl_status.pack(side="left")
 
-        # Snooze Buttons
         snooze_f = tk.Frame(status_bar, bg=BG_MAIN)
         snooze_f.pack(side="right")
         tk.Label(snooze_f, text="Snooze:", font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_MAIN).pack(side="left", padx=2)
@@ -820,7 +839,7 @@ class WatertimeApp:
         for label, mins in [("30m", 30), ("1h", 60), ("2h", 120)]:
             b = tk.Button(
                 snooze_f, text=label, font=("Segoe UI", 8, "bold"),
-                bg="#E2E8F0", fg=TEXT_SECONDARY, relief="flat", bd=0, padx=6, pady=2, cursor="hand2",
+                bg="#E2E8F0", fg=TEXT_SECONDARY, relief="flat", bd=0, padx=6, pady=1, cursor="hand2",
                 command=lambda m=mins: self.set_snooze(m)
             )
             b.bind("<Enter>", lambda e, btn=b: btn.configure(bg="#CBD5E1"))
@@ -829,116 +848,137 @@ class WatertimeApp:
 
         self.btn_resume = tk.Button(
             snooze_f, text="▶ Resume", font=("Segoe UI", 8, "bold"),
-            bg="#D1FAE5", fg="#065F46", relief="flat", bd=0, padx=8, pady=2, cursor="hand2",
+            bg="#D1FAE5", fg="#065F46", relief="flat", bd=0, padx=6, pady=1, cursor="hand2",
             command=lambda: self.set_snooze(0)
         )
         self.btn_resume.bind("<Enter>", lambda e: self.btn_resume.configure(bg="#A7F3D0"))
         self.btn_resume.bind("<Leave>", lambda e: self.btn_resume.configure(bg="#D1FAE5"))
 
-        # 2. Hero Mascot Card (Mascot Illustration + Litres Counter + Drink Button)
-        card_hero = tk.Frame(self.root, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
-        card_hero.pack(fill="x", padx=22, pady=(0, 8))
+        # Hero Mascot Card
+        card_hero = tk.Frame(self.tab_tracker, bg=CARD_BG, padx=14, pady=10, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_hero.pack(fill="x", pady=(0, 8))
 
-        # Left: Real Mascot Character
-        mascot_pil = load_dashboard_mascot_image(target_h=150)
+        mascot_pil = load_dashboard_mascot_image(target_h=140)
         if mascot_pil:
             self.tk_dash_mascot = ImageTk.PhotoImage(mascot_pil, master=self.root)
             lbl_mascot_hero = tk.Label(card_hero, image=self.tk_dash_mascot, bg=CARD_BG, cursor="hand2")
             lbl_mascot_hero.bind("<Button-1>", lambda e: self.test_mascot_now())
-            lbl_mascot_hero.pack(side="left", padx=(0, 16))
+            lbl_mascot_hero.pack(side="left", padx=(0, 14))
 
-        # Right: Info & Primary Action
         info_f = tk.Frame(card_hero, bg=CARD_BG)
         info_f.pack(side="left", fill="both", expand=True)
 
         self.lbl_greeting = tk.Label(
             info_f, text=self._get_greeting_str(),
-            font=("Segoe UI", 11, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG, justify="left", wraplength=270
+            font=("Segoe UI", 10, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG, justify="left", wraplength=260
         )
-        self.lbl_greeting.pack(anchor="w", pady=(2, 4))
+        self.lbl_greeting.pack(anchor="w", pady=(2, 2))
 
         self.lbl_hero_litres = tk.Label(
             info_f, text=f"{self.data.litres_drunk:.2f} L",
-            font=("Segoe UI", 26, "bold"), fg=OCEAN_BLUE, bg=CARD_BG
+            font=("Segoe UI", 24, "bold"), fg=OCEAN_BLUE, bg=CARD_BG
         )
         self.lbl_hero_litres.pack(anchor="w")
 
         self.lbl_hero_sub = tk.Label(
             info_f, text=f"{self.data.count} of {self.data.goal} glasses today ({self.data.percentage}%)",
-            font=("Segoe UI", 9), fg=TEXT_MUTED, bg=CARD_BG
+            font=("Segoe UI", 8), fg=TEXT_MUTED, bg=CARD_BG
         )
         self.lbl_hero_sub.pack(anchor="w", pady=(0, 6))
 
-        # Large "+ Drink a Glass" Primary Button
         btn_drink = tk.Button(
             info_f, text="+ Drink a Glass 💧",
-            font=("Segoe UI", 10, "bold"), bg=OCEAN_BLUE, fg="#FFFFFF",
+            font=("Segoe UI", 9, "bold"), bg=OCEAN_BLUE, fg="#FFFFFF",
             activebackground=OCEAN_DARK, activeforeground="#FFFFFF",
-            relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
+            relief="flat", bd=0, padx=12, pady=5, cursor="hand2",
             command=self.quick_log_glass
         )
         btn_drink.bind("<Enter>", lambda e: btn_drink.configure(bg=OCEAN_DARK))
         btn_drink.bind("<Leave>", lambda e: btn_drink.configure(bg=OCEAN_BLUE))
         btn_drink.pack(anchor="w")
 
-        # 3. Interactive Visual Glasses Tracker Card
-        card_glasses = tk.Frame(self.root, bg=CARD_BG, padx=16, pady=10, highlightthickness=1, highlightbackground=CARD_BORDER)
-        card_glasses.pack(fill="x", padx=22, pady=(0, 8))
-
-        glasses_hdr = tk.Frame(card_glasses, bg=CARD_BG)
-        glasses_hdr.pack(fill="x")
+        # Visual Glasses Tracker Card
+        card_glasses = tk.Frame(self.tab_tracker, bg=CARD_BG, padx=14, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_glasses.pack(fill="x", pady=(0, 8))
 
         tk.Label(
-            glasses_hdr, text="DAILY GLASSES (CLICK A GLASS TO LOG)",
+            card_glasses, text="DAILY GLASSES (CLICK A GLASS TO LOG)",
             font=("Segoe UI", 8, "bold"), fg=TEXT_MUTED, bg=CARD_BG
-        ).pack(side="left")
+        ).pack(anchor="w")
 
-        # Glasses Canvas
-        self.canvas_glasses = tk.Canvas(card_glasses, width=410, height=52, bg=CARD_BG, highlightthickness=0, cursor="hand2")
-        self.canvas_glasses.pack(fill="x", pady=(4, 2))
+        self.canvas_glasses = tk.Canvas(card_glasses, width=420, height=48, bg=CARD_BG, highlightthickness=0, cursor="hand2")
+        self.canvas_glasses.pack(fill="x", pady=(4, 0))
         self.canvas_glasses.bind("<Button-1>", self.on_glass_canvas_clicked)
         self._render_interactive_glasses()
 
-        # 4. Weekly Activity Card
-        card_activity = tk.Frame(self.root, bg=CARD_BG, padx=16, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
-        card_activity.pack(fill="x", padx=22, pady=(0, 8))
+        # Last 7 Days Activity Card
+        card_activity = tk.Frame(self.tab_tracker, bg=CARD_BG, padx=14, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_activity.pack(fill="x", pady=(0, 4))
 
         tk.Label(
             card_activity, text="LAST 7 DAYS ACTIVITY",
             font=("Segoe UI", 8, "bold"), fg=TEXT_MUTED, bg=CARD_BG
         ).pack(anchor="w", pady=(0, 2))
 
-        self.canvas_chart = tk.Canvas(card_activity, width=410, height=58, bg=CARD_BG, highlightthickness=0)
+        self.canvas_chart = tk.Canvas(card_activity, width=420, height=52, bg=CARD_BG, highlightthickness=0)
         self.canvas_chart.pack(fill="x")
         self._render_weekly_chart()
 
-        # 5. Preferences & Schedule Card
-        card_pref = tk.Frame(self.root, bg=CARD_BG, padx=16, pady=10, highlightthickness=1, highlightbackground=CARD_BORDER)
-        card_pref.pack(fill="x", padx=22, pady=(0, 8))
+        # ── TAB 2: Preferences & Schedule ──
+        self.tab_pref = tk.Frame(self.container, bg=BG_MAIN)
 
-        tk.Label(
-            card_pref, text="PREFERENCES & SCHEDULE",
-            font=("Segoe UI", 8, "bold"), fg=TEXT_MUTED, bg=CARD_BG
-        ).pack(anchor="w", pady=(0, 4))
+        # Card 1: Profile & Daily Target
+        card_p1 = tk.Frame(self.tab_pref, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p1.pack(fill="x", pady=(0, 8))
+
+        tk.Label(card_p1, text="👤  PERSONAL PROFILE & TARGET", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
 
         # Name row
-        row_name = tk.Frame(card_pref, bg=CARD_BG)
-        row_name.pack(fill="x", pady=2)
-        tk.Label(row_name, text="Your Name", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=14, anchor="w").pack(side="left")
+        r_name = tk.Frame(card_p1, bg=CARD_BG)
+        r_name.pack(fill="x", pady=3)
+        tk.Label(r_name, text="Your Name:", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=15, anchor="w").pack(side="left")
         self.entry_name = tk.Entry(
-            row_name, font=("Segoe UI", 9), bg="#F8FAFC", fg=TEXT_DARK,
+            r_name, font=("Segoe UI", 9), bg="#F8FAFC", fg=TEXT_DARK,
             relief="flat", bd=0, highlightthickness=1, highlightbackground=CARD_BORDER,
-            highlightcolor=OCEAN_BLUE, width=18
+            highlightcolor=OCEAN_BLUE, width=20
         )
         self.entry_name.insert(0, self.data.user_name)
         self.entry_name.pack(side="left", padx=4)
         self.entry_name.bind("<FocusOut>", self.on_name_changed)
         self.entry_name.bind("<Return>", self.on_name_changed)
 
+        # Goal row
+        r_goal = tk.Frame(card_p1, bg=CARD_BG)
+        r_goal.pack(fill="x", pady=3)
+        tk.Label(r_goal, text="Daily Target:", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=15, anchor="w").pack(side="left")
+
+        self.goal_options = {
+            "6 glasses (1.5 L)": 6,
+            "8 glasses (2.0 L)": 8,
+            "10 glasses (2.5 L)": 10,
+            "12 glasses (3.0 L)": 12,
+            "14 glasses (3.5 L)": 14,
+        }
+        self.combo_goal = ttk.Combobox(
+            r_goal, style="Pivora.TCombobox", values=list(self.goal_options.keys()),
+            width=18, state="readonly", font=("Segoe UI", 9)
+        )
+        curr_goal = self.data.goal
+        found_goal_key = next((k for k, v in self.goal_options.items() if v == curr_goal), f"{curr_goal} glasses")
+        self.combo_goal.set(found_goal_key)
+        self.combo_goal.bind("<<ComboboxSelected>>", self.on_goal_selected)
+        self.combo_goal.pack(side="left", padx=4)
+
+        # Card 2: Schedule & Quiet Hours
+        card_p2 = tk.Frame(self.tab_pref, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p2.pack(fill="x", pady=(0, 8))
+
+        tk.Label(card_p2, text="⏰  REMINDERS & SCHEDULE", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
+
         # Interval row
-        row_interval = tk.Frame(card_pref, bg=CARD_BG)
-        row_interval.pack(fill="x", pady=2)
-        tk.Label(row_interval, text="Remind Every", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=14, anchor="w").pack(side="left")
+        r_int = tk.Frame(card_p2, bg=CARD_BG)
+        r_int.pack(fill="x", pady=3)
+        tk.Label(r_int, text="Remind Every:", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=15, anchor="w").pack(side="left")
 
         self.interval_options = {
             "1 min (Test)": 1,
@@ -951,8 +991,8 @@ class WatertimeApp:
             "60 mins": 60,
         }
         self.combo_interval = ttk.Combobox(
-            row_interval, style="Pivora.TCombobox", values=list(self.interval_options.keys()),
-            width=16, state="readonly", font=("Segoe UI", 9)
+            r_int, style="Pivora.TCombobox", values=list(self.interval_options.keys()),
+            width=18, state="readonly", font=("Segoe UI", 9)
         )
         current_mins = self.data.interval_minutes
         found_key = next((k for k, v in self.interval_options.items() if v == current_mins), f"{current_mins} mins")
@@ -960,34 +1000,12 @@ class WatertimeApp:
         self.combo_interval.bind("<<ComboboxSelected>>", self.on_interval_selected)
         self.combo_interval.pack(side="left", padx=4)
 
-        # Goal row
-        row_goal = tk.Frame(card_pref, bg=CARD_BG)
-        row_goal.pack(fill="x", pady=2)
-        tk.Label(row_goal, text="Daily Target", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=14, anchor="w").pack(side="left")
-
-        self.goal_options = {
-            "6 glasses (1.5 L)": 6,
-            "8 glasses (2.0 L)": 8,
-            "10 glasses (2.5 L)": 10,
-            "12 glasses (3.0 L)": 12,
-            "14 glasses (3.5 L)": 14,
-        }
-        self.combo_goal = ttk.Combobox(
-            row_goal, style="Pivora.TCombobox", values=list(self.goal_options.keys()),
-            width=16, state="readonly", font=("Segoe UI", 9)
-        )
-        curr_goal = self.data.goal
-        found_goal_key = next((k for k, v in self.goal_options.items() if v == curr_goal), f"{curr_goal} glasses")
-        self.combo_goal.set(found_goal_key)
-        self.combo_goal.bind("<<ComboboxSelected>>", self.on_goal_selected)
-        self.combo_goal.pack(side="left", padx=4)
-
         # Active Hours row
-        row_hours = tk.Frame(card_pref, bg=CARD_BG)
-        row_hours.pack(fill="x", pady=2)
+        r_hours = tk.Frame(card_p2, bg=CARD_BG)
+        r_hours.pack(fill="x", pady=3)
         self.var_work_hours = tk.BooleanVar(value=self.data.work_hours_enabled)
         chk_hours = tk.Checkbutton(
-            row_hours, text="Active Hours:", variable=self.var_work_hours,
+            r_hours, text="Active Hours:", variable=self.var_work_hours,
             font=("Segoe UI", 9, "bold"), bg=CARD_BG, fg=TEXT_DARK,
             activebackground=CARD_BG, selectcolor="#F0F9FF",
             command=self.on_work_hours_toggled
@@ -995,41 +1013,63 @@ class WatertimeApp:
         chk_hours.pack(side="left")
 
         hour_vals = [f"{h:02d}:00" for h in range(24)]
-        self.combo_h_start = ttk.Combobox(row_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_start = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
         self.combo_h_start.set(f"{self.data.work_start_hour:02d}:00")
         self.combo_h_start.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
-        self.combo_h_start.pack(side="left", padx=3)
+        self.combo_h_start.pack(side="left", padx=4)
 
-        tk.Label(row_hours, text="to", font=("Segoe UI", 8), bg=CARD_BG, fg=TEXT_MUTED).pack(side="left")
+        tk.Label(r_hours, text="to", font=("Segoe UI", 8), bg=CARD_BG, fg=TEXT_MUTED).pack(side="left")
 
-        self.combo_h_end = ttk.Combobox(row_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_end = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
         self.combo_h_end.set(f"{self.data.work_end_hour:02d}:00")
         self.combo_h_end.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
-        self.combo_h_end.pack(side="left", padx=3)
+        self.combo_h_end.pack(side="left", padx=4)
 
-        # Auto-start row
+        tk.Label(
+            card_p2, text="💡 Outside active hours, character reminders are paused so you can sleep peacefully.",
+            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, wraplength=410, justify="left"
+        ).pack(anchor="w", pady=(3, 0))
+
+        # Card 3: System & Quick Controls
+        card_p3 = tk.Frame(self.tab_pref, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p3.pack(fill="x", pady=(0, 4))
+
+        tk.Label(card_p3, text="⚡  SYSTEM & SHORTCUTS", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
+
         self.var_autostart = tk.BooleanVar(value=is_autostart_enabled())
-        self.chk_autostart = tk.Checkbutton(
-            card_pref, text="Launch automatically on PC boot",
+        chk_autostart = tk.Checkbutton(
+            card_p3, text="Start Pivora automatically on Windows boot",
             variable=self.var_autostart, onvalue=True, offvalue=False,
             font=("Segoe UI", 9), bg=CARD_BG, fg=TEXT_SECONDARY,
             activebackground=CARD_BG, selectcolor="#F0F9FF",
             command=self.toggle_autostart
         )
-        self.chk_autostart.pack(anchor="w", pady=(2, 0))
+        chk_autostart.pack(anchor="w")
 
-        # 6. Bottom Actions
-        lbl_hint = tk.Label(
-            self.root, text="💡 Tip: Press Ctrl + Alt + W anywhere to quickly log a glass!",
-            font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_MAIN
+        r_bottom_ctrl = tk.Frame(card_p3, bg=CARD_BG)
+        r_bottom_ctrl.pack(fill="x", pady=(6, 0))
+
+        tk.Label(
+            r_bottom_ctrl, text="⌨️ Hotkey: Press Ctrl + Alt + W anywhere to quickly log a glass",
+            font=("Segoe UI", 8), fg=TEXT_MUTED, bg=CARD_BG
+        ).pack(side="left")
+
+        btn_reset_cnt = tk.Button(
+            r_bottom_ctrl, text="🔄 Reset Count", font=("Segoe UI", 8),
+            bg="#F1F5F9", fg="#DC2626", relief="flat", bd=0, padx=8, pady=2, cursor="hand2",
+            command=self.reset_count
         )
-        lbl_hint.pack(pady=(0, 4))
+        btn_reset_cnt.pack(side="right")
 
-        actions_frame = tk.Frame(self.root, bg=BG_MAIN)
-        actions_frame.pack(pady=(0, 8))
+        # Show initial tab
+        self.tab_tracker.pack(fill="both", expand=True)
+
+        # 4. Common Bottom Action Footer (Always Visible on Both Tabs)
+        footer_frame = tk.Frame(self.root, bg=BG_MAIN)
+        footer_frame.pack(fill="x", padx=20, pady=(6, 10))
 
         btn_test = tk.Button(
-            actions_frame, text="🚶 Test Mascot Animation",
+            footer_frame, text="🚶 Test Mascot Animation",
             font=("Segoe UI", 9, "bold"), bg=AMBER_GOLD, fg="#FFFFFF",
             activebackground="#D97706", activeforeground="#FFFFFF",
             relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
@@ -1037,18 +1077,32 @@ class WatertimeApp:
         )
         btn_test.bind("<Enter>", lambda e: btn_test.configure(bg="#D97706"))
         btn_test.bind("<Leave>", lambda e: btn_test.configure(bg=AMBER_GOLD))
-        btn_test.pack(side="left", padx=5)
+        btn_test.pack(side="left")
 
         btn_min = tk.Button(
-            actions_frame, text="Minimize to Tray",
+            footer_frame, text="Minimize to Tray",
             font=("Segoe UI", 9), bg="#E2E8F0", fg=TEXT_DARK,
             activebackground="#CBD5E1", activeforeground=TEXT_DARK,
-            relief="flat", bd=0, padx=12, pady=6, cursor="hand2",
+            relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
             command=self.hide_dashboard
         )
         btn_min.bind("<Enter>", lambda e: btn_min.configure(bg="#CBD5E1"))
         btn_min.bind("<Leave>", lambda e: btn_min.configure(bg="#E2E8F0"))
-        btn_min.pack(side="left", padx=5)
+        btn_min.pack(side="right")
+
+    def switch_tab(self, tab_name: str):
+        """Switch smoothly between Tracker and Preferences views."""
+        self.active_tab = tab_name
+        if tab_name == "tracker":
+            self.tab_pref.pack_forget()
+            self.tab_tracker.pack(fill="both", expand=True)
+            self.btn_tab_tracker.configure(bg="#FFFFFF", fg=OCEAN_BLUE)
+            self.btn_tab_pref.configure(bg="#E0F2FE", fg=TEXT_MUTED)
+        else:
+            self.tab_tracker.pack_forget()
+            self.tab_pref.pack(fill="both", expand=True)
+            self.btn_tab_pref.configure(bg="#FFFFFF", fg=OCEAN_BLUE)
+            self.btn_tab_tracker.configure(bg="#E0F2FE", fg=TEXT_MUTED)
 
     def _get_greeting_str(self):
         name = self.data.user_name
@@ -1066,11 +1120,11 @@ class WatertimeApp:
         self.canvas_glasses.delete("all")
         goal = max(1, self.data.goal)
         count = self.data.count
-        w = 410
+        w = 420
         col_w = w / goal
-        gw = min(34, col_w - 6)
-        gh = 40
-        gy1 = 5
+        gw = min(32, col_w - 4)
+        gh = 38
+        gy1 = 4
         gy2 = gy1 + gh
 
         for i in range(goal):
@@ -1083,7 +1137,6 @@ class WatertimeApp:
             border_col = OCEAN_DARK if filled else CARD_BORDER
             txt_col = "#FFFFFF" if filled else TEXT_MUTED
 
-            # Draw water glass trapezoid
             pts = [
                 gx1, gy1,
                 gx2, gy1,
@@ -1095,12 +1148,11 @@ class WatertimeApp:
             if filled:
                 self.canvas_glasses.create_text(cx, gy1 + gh // 2, text="💧", font=("Segoe UI", 10), fill="#FFFFFF")
             else:
-                self.canvas_glasses.create_text(cx, gy1 + gh // 2, text=str(i + 1), font=("Segoe UI", 9, "bold"), fill=txt_col)
+                self.canvas_glasses.create_text(cx, gy1 + gh // 2, text=str(i + 1), font=("Segoe UI", 8, "bold"), fill=txt_col)
 
     def on_glass_canvas_clicked(self, event):
-        """Allow user to click directly on any glass to log or update intake."""
         goal = max(1, self.data.goal)
-        w = 410
+        w = 420
         col_w = w / goal
         idx = int(event.x // col_w)
         if 0 <= idx < goal:
@@ -1110,14 +1162,13 @@ class WatertimeApp:
             self.show_quick_toast(f"💧 Updated: {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L)")
 
     def _render_weekly_chart(self):
-        """Draw 7-day capsule visual bar chart in friendly consumer theme."""
         self.canvas_chart.delete("all")
         days = self.data.get_last_7_days()
-        w = 410
+        w = 420
         col_w = w / 7
         bar_w = 20
-        base_y = 40
-        max_bar_h = 24
+        base_y = 36
+        max_bar_h = 22
         goal = self.data.goal
 
         for idx, (d, d_str, cnt, is_today) in enumerate(days):
@@ -1130,37 +1181,27 @@ class WatertimeApp:
             by1 = base_y - bar_h
             by2 = base_y
 
-            if cnt >= goal:
-                fill_col = EMERALD_GREEN
-            elif cnt > 0:
-                fill_col = OCEAN_BLUE
-            else:
-                fill_col = "#E2E8F0"
+            fill_col = EMERALD_GREEN if cnt >= goal else (OCEAN_BLUE if cnt > 0 else "#E2E8F0")
 
-            # Background slot capsule
             self.canvas_chart.create_rectangle(bx1, base_y - max_bar_h, bx2, base_y, fill="#F1F5F9", outline="", width=0)
-            # Active bar
             self.canvas_chart.create_rectangle(bx1, by1, bx2, by2, fill=fill_col, outline="", width=0)
 
-            # Count text
             cnt_color = OCEAN_DARK if is_today or cnt > 0 else TEXT_MUTED
             self.canvas_chart.create_text(
                 cx, by1 - 5, text=str(cnt),
                 font=("Segoe UI", 8, "bold" if is_today else "normal"), fill=cnt_color
             )
 
-            # Day label
             day_name = d.strftime("%a")
             day_color = OCEAN_DARK if is_today else TEXT_MUTED
             self.canvas_chart.create_text(
-                cx, base_y + 9, text=day_name,
+                cx, base_y + 8, text=day_name,
                 font=("Segoe UI", 8, "bold" if is_today else "normal"),
                 fill=day_color
             )
 
-            # Indicator dot for today
             if is_today:
-                self.canvas_chart.create_oval(cx - 2, base_y + 15, cx + 2, base_y + 19, fill=OCEAN_BLUE, outline="")
+                self.canvas_chart.create_oval(cx - 2, base_y + 14, cx + 2, base_y + 18, fill=OCEAN_BLUE, outline="")
 
     def _center_window(self, w, h):
         sw = self.root.winfo_screenwidth()
@@ -1270,7 +1311,7 @@ class WatertimeApp:
         HOTKEY_ID = 4789
         MOD_ALT = 0x0001
         MOD_CONTROL = 0x0002
-        VK_W = 0x57  # 'W' key
+        VK_W = 0x57
 
         if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL | MOD_ALT, VK_W):
             return
@@ -1344,7 +1385,8 @@ class WatertimeApp:
         self.root.withdraw()
         self._update_status_label()
 
-    def show_dashboard(self, icon=None, item=None):
+    def show_dashboard(self, icon=None, item=None, tab="tracker"):
+        self.switch_tab(tab)
         self.root.after(0, self._show_dashboard_internal)
 
     def _show_dashboard_internal(self):
@@ -1378,7 +1420,7 @@ class WatertimeApp:
                     conn, _ = _instance_socket.accept()
                     data = conn.recv(64)
                     if data == b"SHOW":
-                        self.root.after(0, self.show_dashboard)
+                        self.root.after(0, lambda: self.show_dashboard(tab="tracker"))
                     conn.close()
                 except Exception:
                     break
@@ -1426,7 +1468,7 @@ class WatertimeApp:
                 pystray.MenuItem("🚶 Show Mascot Now", lambda icon, item: self.root.after(0, self.test_mascot_now)),
                 pystray.MenuItem("🔕 Snooze / DND", snooze_menu),
                 pystray.MenuItem("⏱️ Change Interval", interval_menu),
-                pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.show_dashboard()),
+                pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.show_dashboard(tab="pref")),
                 pystray.MenuItem("🔄 Reset Today's Count", lambda icon, item: self.reset_count()),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("❌ Quit Pivora", lambda icon, item: self.quit_app())
