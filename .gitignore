@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+env/
+venv/
+
+# Watertime User Data
+.watertime_data.json
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
