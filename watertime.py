@@ -1510,9 +1510,13 @@ class WatertimeApp:
 
         # Check Snooze
         if self.dnd_until > now:
-            mins_left = max(1, int((self.dnd_until - now) / 60))
+            snooze_secs = max(0, int(self.dnd_until - now))
+            if snooze_secs < 60:
+                snooze_str = f"{snooze_secs}s left"
+            else:
+                snooze_str = f"{snooze_secs // 60}m left"
             until_str = time.strftime("%H:%M", time.localtime(self.dnd_until))
-            self.lbl_status.config(text=f"⏸️ Snoozed ({mins_left}m left, until {until_str})", fg="#B45309")
+            self.lbl_status.config(text=f"⏸️ Snoozed ({snooze_str}, until {until_str})", fg="#B45309")
             self.btn_resume.pack(side="left", padx=2)
             if self.tray:
                 self.tray.title = f"Pivora 💧 [Snoozed until {until_str}] • {self.data.count}/{self.data.goal} ({self.data.litres_drunk:.2f}L)"
@@ -1541,10 +1545,15 @@ class WatertimeApp:
 
         # Normal Active
         secs_left = max(0, int(self.next_reminder_time - now))
-        mins_left = secs_left // 60
-        self.lbl_status.config(text=f"🟢 Active (Next reminder in {mins_left}m)", fg="#059669")
+        if secs_left < 60:
+            time_left_str = f"{secs_left}s"
+        else:
+            mins_left = secs_left // 60
+            time_left_str = f"{mins_left}m"
+
+        self.lbl_status.config(text=f"🟢 Active (Next reminder in {time_left_str})", fg="#059669")
         if self.tray:
-            self.tray.title = f"Pivora 💧 — {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L) • Next in {mins_left}m"
+            self.tray.title = f"Pivora 💧 — {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L) • Next in {time_left_str}"
 
     def _refresh_ui_progress(self):
         self.lbl_greeting.config(text=self._get_greeting_str())
