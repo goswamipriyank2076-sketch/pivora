@@ -61,19 +61,28 @@ MASCOT_QUOTES = [
 
 
 # ─────────────────────────────────────────────────────────────────
-# Single Instance Lock
+# Single Instance Lock with Auto-Wakeup
 # ─────────────────────────────────────────────────────────────────
 _instance_socket = None
 
 def ensure_single_instance(port=47892):
-    """Ensure only one instance of the app runs at a time."""
+    """Ensure only one instance of the app runs at a time.
+    If another instance is already running, send a 'SHOW' signal to bring it to foreground."""
     global _instance_socket
     import socket
     _instance_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         _instance_socket.bind(("127.0.0.1", port))
+        _instance_socket.listen(5)
     except socket.error:
-        print("[Pivora] Another instance is already running. Exiting duplicate.")
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(("127.0.0.1", port))
+            client.sendall(b"SHOW")
+            client.close()
+        except Exception:
+            pass
+        print("[Pivora] App is already running in background. Activated existing window.")
         sys.exit(0)
 
 
@@ -658,6 +667,9 @@ class WatertimeApp:
         # Global Hotkey Listener (Ctrl + Alt + W)
         self._start_hotkey_listener()
 
+        # IPC listener to pop window to front if launched again
+        self._start_ipc_listener()
+
         # Timer loop
         self._check_timer_loop()
 
@@ -1131,17 +1143,39 @@ class WatertimeApp:
         self.combo_interval.set(found_key)
         self._update_status_label()
 
+    def _start_ipc_listener(self):
+        """Listen for wakeup signals from duplicate launches to bring dashboard to front."""
+        global _instance_socket
+        if not _instance_socket:
+            return
+        def loop():
+            while True:
+                try:
+                    conn, _ = _instance_socket.accept()
+                    data = conn.recv(64)
+                    if data == b"SHOW":
+                        self.root.after(0, self.show_dashboard)
+                    conn.close()
+                except Exception:
+                    break
+        threading.Thread(target=loop, daemon=True).start()
+
     # ── Tray Initialization ──
     def _init_tray(self):
         try:
             icon_img = create_tray_icon_image(self.data.count, self.data.goal, 64)
 
             def make_interval_item(label, mins):
-                return pystray.MenuItem(
-                    label,
-                    lambda icon, item, m=mins: self.set_interval_from_tray(m),
-                    checked=lambda item, m=mins: self.data.interval_minutes == m
-                )
+                def on_click(icon, item):
+                    self.set_interval_from_tray(mins)
+                def is_checked(item):
+                    return self.data.interval_minutes == mins
+                return pystray.MenuItem(label, on_click, checked=is_checked)
+
+            def make_snooze_item(label, mins):
+                def on_click(icon, item):
+                    self.root.after(0, lambda: self.set_snooze(mins))
+                return pystray.MenuItem(label, on_click)
 
             interval_menu = pystray.Menu(
                 make_interval_item("1 min (Test)", 1),
@@ -1155,23 +1189,23 @@ class WatertimeApp:
             )
 
             snooze_menu = pystray.Menu(
-                pystray.MenuItem("⏸️ Snooze 30 mins", lambda: self.root.after(0, lambda: self.set_snooze(30))),
-                pystray.MenuItem("⏸️ Snooze 1 hour", lambda: self.root.after(0, lambda: self.set_snooze(60))),
-                pystray.MenuItem("⏸️ Snooze 2 hours", lambda: self.root.after(0, lambda: self.set_snooze(120))),
-                pystray.MenuItem("▶️ Resume Reminders", lambda: self.root.after(0, lambda: self.set_snooze(0))),
+                make_snooze_item("⏸️ Snooze 30 mins", 30),
+                make_snooze_item("⏸️ Snooze 1 hour", 60),
+                make_snooze_item("⏸️ Snooze 2 hours", 120),
+                make_snooze_item("▶️ Resume Reminders", 0),
             )
 
             menu = pystray.Menu(
                 pystray.MenuItem("💧 Watertime Active", None, enabled=False),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem("➕ Quick Log 1 Glass (Ctrl+Alt+W)", self.quick_log_glass),
-                pystray.MenuItem("🚶 Show Mascot Now", lambda: self.root.after(0, self.test_mascot_now)),
+                pystray.MenuItem("➕ Quick Log 1 Glass (Ctrl+Alt+W)", lambda icon, item: self.quick_log_glass()),
+                pystray.MenuItem("🚶 Show Mascot Now", lambda icon, item: self.root.after(0, self.test_mascot_now)),
                 pystray.MenuItem("🔕 Snooze / DND", snooze_menu),
                 pystray.MenuItem("⏱️ Change Interval", interval_menu),
-                pystray.MenuItem("⚙️ Open Settings", self.show_dashboard),
-                pystray.MenuItem("🔄 Reset Today's Count", self.reset_count),
+                pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.show_dashboard()),
+                pystray.MenuItem("🔄 Reset Today's Count", lambda icon, item: self.reset_count()),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem("❌ Quit Watertime", self.quit_app)
+                pystray.MenuItem("❌ Quit Watertime", lambda icon, item: self.quit_app())
             )
             self.tray = pystray.Icon("Watertime", icon_img, "Watertime 💧", menu)
             threading.Thread(target=self.tray.run, daemon=True).start()
