@@ -732,8 +732,10 @@ class MascotOverlay:
         self.bubble_photo = ImageTk.PhotoImage(img, master=self.win)
         self.canvas.itemconfig(self.bubble_item, image=self.bubble_photo)
 
-    def trigger(self):
+    def trigger(self, force=False):
         if self.is_active:
+            return
+        if not force and self.data.count >= self.data.goal:
             return
         self.is_active = True
         self.step_idx = 0
@@ -1667,13 +1669,15 @@ class WatertimeApp:
             except Exception:
                 pass
 
-    def test_mascot_now(self):
+    def test_mascot_now(self, force=False):
         self.on_name_changed()
+        if not force and self.data.count >= self.data.goal:
+            return
         if self.data.pause_on_meeting:
             in_meet, desc = is_meeting_or_screenshare_active()
             if in_meet:
                 self.show_quick_toast(f"💡 {desc} active. Testing mascot anyway!")
-        self.mascot.trigger()
+        self.mascot.trigger(force=force)
 
     def hide_dashboard(self):
         self.on_name_changed()
@@ -1854,7 +1858,19 @@ class WatertimeApp:
             self.hide_dashboard()
         else:
             self._show_dashboard_internal()
-            self.root.after(600, self.test_mascot_now)
+            # Do NOT trigger mascot if today's goal is already achieved!
+            if self.data.count < self.data.goal:
+                curr_hour = time.localtime().tm_hour
+                is_active_time = True
+                if self.data.work_hours_enabled:
+                    is_active_time = (self.data.work_start_hour <= curr_hour < self.data.work_end_hour)
+                if is_active_time:
+                    if self.data.pause_on_meeting:
+                        in_meet, _ = is_meeting_or_screenshare_active()
+                        if in_meet:
+                            is_active_time = False
+                if is_active_time:
+                    self.root.after(800, self.test_mascot_now)
         self.root.mainloop()
 
 
