@@ -773,10 +773,15 @@ class MascotOverlay:
         if self.dismiss_job:
             self.win.after_cancel(self.dismiss_job)
             self.dismiss_job = None
+        was_below_goal = self.data.count < self.data.goal
         self.data.add_glass()
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        self._set_bubble(f"Awesome, {self.data.user_name}!", "Stay healthy & hydrated!", "💧")
-        self.win.after(1100, self._walk_out)
+        if was_below_goal and self.data.count >= self.data.goal:
+            self._set_bubble(f"Goal Reached, {self.data.user_name}! 🎉", f"You hit your {self.data.goal} glasses target! Great job!", "🏆")
+            self.win.after(1600, self._walk_out)
+        else:
+            self._set_bubble(f"Awesome, {self.data.user_name}!", "Stay healthy & hydrated!", "💧")
+            self.win.after(1100, self._walk_out)
 
     def on_later(self):
         if self.dismiss_job:
@@ -1460,15 +1465,29 @@ class WatertimeApp:
 
     # ── Quick Log (Hotkey or Tray or Dashboard) ──
     def quick_log_glass(self, icon=None, item=None):
+        was_below_goal = self.data.count < self.data.goal
         self.data.add_glass()
         self._refresh_ui_progress()
-        toast_msg = f"💧 +1 Glass Logged! ({self.data.count}/{self.data.goal} glasses • {self.data.litres_drunk:.2f}L)"
-        self.show_quick_toast(toast_msg)
-        if self.tray:
-            try:
-                self.tray.notify("💧 Water Logged!", toast_msg)
-            except Exception:
-                pass
+
+        if was_below_goal and self.data.count >= self.data.goal:
+            toast_msg = f"🎉 Target Achieved! ({self.data.count}/{self.data.goal} glasses • {self.data.litres_drunk:.2f}L)"
+            self.show_quick_toast(toast_msg)
+            if self.tray:
+                try:
+                    self.tray.notify(
+                        "🎉 Daily Goal Achieved!",
+                        f"Awesome work, {self.data.user_name}! You completed your {self.data.goal} glasses target today! Reminders are now paused."
+                    )
+                except Exception:
+                    pass
+        else:
+            toast_msg = f"💧 +1 Glass Logged! ({self.data.count}/{self.data.goal} glasses • {self.data.litres_drunk:.2f}L)"
+            self.show_quick_toast(toast_msg)
+            if self.tray:
+                try:
+                    self.tray.notify("💧 Water Logged!", toast_msg)
+                except Exception:
+                    pass
 
     def show_quick_toast(self, text: str):
         try:
@@ -1570,6 +1589,16 @@ class WatertimeApp:
                 if self.tray:
                     self.tray.title = f"Pivora 💧 [Meeting Mode Active] • {self.data.count}/{self.data.goal}"
                 return
+
+        # Check Goal Achieved (Target Completed)
+        if self.data.count >= self.data.goal:
+            self.lbl_status.config(
+                text=f"🎉 Daily Goal Achieved! ({self.data.count}/{self.data.goal} glasses)",
+                fg=EMERALD_GREEN
+            )
+            if self.tray:
+                self.tray.title = f"Pivora 💧 [Target Completed: {self.data.count}/{self.data.goal}] • All Done For Today! 🎉"
+            return
 
         # Normal Active
         secs_left = max(0, int(self.next_reminder_time - now))
@@ -1742,6 +1771,12 @@ class WatertimeApp:
                 self._update_status_label()
                 self.root.after(2000, self._check_timer_loop)
                 return
+
+        # Check Goal Achieved (Stop reminder popups if target is met)
+        if self.data.count >= self.data.goal:
+            self._update_status_label()
+            self.root.after(2000, self._check_timer_loop)
+            return
 
         # Check interval trigger
         if now >= self.next_reminder_time:
