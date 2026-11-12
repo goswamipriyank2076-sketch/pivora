@@ -256,7 +256,10 @@ def load_gif_frames(master, target_h=320):
 
 
 class MascotOverlay:
-    """Borderless, transparent window where the animated boy character walks onto screen."""
+    """Borderless, transparent window with natural human walking and drinking sequence."""
+
+    WALK_FRAMES = [0, 1, 8, 1]                   # Pure walking stepping cycle holding bottle
+    DRINK_FRAMES = [2, 3, 4, 5, 6, 5, 6, 7, 8]   # Sips water at center, lowers bottle, smiles
 
     def __init__(self, master, data: WaterData, on_close=None):
         self.master = master
@@ -333,23 +336,18 @@ class MascotOverlay:
         self.btn_window = self.canvas.create_window(self.w // 2, 85, window=self.btn_frame_w)
 
         self.dismiss_job = None
-        self.gif_job = None
+        self.anim_job = None
         self.move_job = None
-
-    def _cycle_gif(self):
-        """Continuously cycle through the 9 frames of the animated boy."""
-        if not self.is_active or not self.frames:
-            return
-        self.cur_frame = (self.cur_frame + 1) % len(self.frames)
-        if self.char_id:
-            self.canvas.itemconfig(self.char_id, image=self.frames[self.cur_frame])
-        self.gif_job = self.win.after(135, self._cycle_gif)
+        self.step_idx = 0
+        self.total_steps = 0
 
     def trigger(self):
         """Start the walking animation onto the screen."""
         if self.is_active:
             return
         self.is_active = True
+        self.step_idx = 0
+        self.total_steps = 0
 
         name = self.data.user_name
         text_str = f"Hey, {name}!\nDid you drink water?"
@@ -362,32 +360,72 @@ class MascotOverlay:
         self.canvas.itemconfigure(self.btn_window, state="hidden")
 
         if self.frames and self.char_id:
-            self.cur_frame = 0
             self.canvas.itemconfig(self.char_id, image=self.frames[0])
+            self.canvas.coords(self.char_id, self.w // 2, 265)
 
-        self.curr_x = self.sw
+        # Start from right side (about 600px from center for smooth 3s walk)
+        self.curr_x = min(self.sw, self.target_x + 600)
         self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
         self.win.deiconify()
         self.win.lift()
         self.win.wm_attributes("-topmost", True)
 
-        # Start GIF cycle and walking movement
-        self._cycle_gif()
+        # Start pure walking cycle and movement
+        self._cycle_walk()
         self._walk_in_step()
+
+    def _cycle_walk(self):
+        """Cycle pure walking frames [0, 1, 8, 1] with realistic footstep cadence."""
+        if not self.is_active or not self.frames:
+            return
+        f_idx = self.WALK_FRAMES[self.step_idx % len(self.WALK_FRAMES)]
+        self.step_idx += 1
+        if self.char_id and f_idx < len(self.frames):
+            self.canvas.itemconfig(self.char_id, image=self.frames[f_idx])
+        self.anim_job = self.win.after(160, self._cycle_walk)
 
     def _walk_in_step(self):
         if not self.is_active:
             return
-        speed = 18
+        # Natural human walking speed (5px per 25ms = ~200px/s)
+        speed = 5
         if self.curr_x > self.target_x:
             self.curr_x = max(self.target_x, self.curr_x - speed)
+            self.total_steps += 1
+            # Natural vertical bobbing synced with footsteps
+            bob = int(math.sin(self.total_steps * 0.28) * 4)
+            if self.char_id:
+                self.canvas.coords(self.char_id, self.w // 2, 265 + bob)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
-            self.move_job = self.win.after(22, self._walk_in_step)
+            self.move_job = self.win.after(25, self._walk_in_step)
         else:
             self.curr_x = self.target_x
+            if self.char_id:
+                self.canvas.coords(self.char_id, self.w // 2, 265)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
 
-            # Arrived at center! Reveal question and buttons!
+            # Stop walking animation
+            if self.anim_job:
+                self.win.after_cancel(self.anim_job)
+                self.anim_job = None
+
+            # Now play the drinking sequence at center!
+            self._play_drink_at_center(0)
+
+    def _play_drink_at_center(self, drink_idx):
+        """Character pauses at center, raises bottle, drinks water, and smiles."""
+        if not self.is_active or not self.frames:
+            return
+        if drink_idx < len(self.DRINK_FRAMES):
+            f_idx = self.DRINK_FRAMES[drink_idx]
+            if self.char_id and f_idx < len(self.frames):
+                self.canvas.itemconfig(self.char_id, image=self.frames[f_idx])
+            delay = 220 if f_idx in (5, 6) else 150
+            self.anim_job = self.win.after(delay, lambda: self._play_drink_at_center(drink_idx + 1))
+        else:
+            # Done drinking! Stand smiling and reveal question & buttons
+            if self.char_id and len(self.frames) > 0:
+                self.canvas.itemconfig(self.char_id, image=self.frames[0])
             self.canvas.itemconfigure(self.text_shadow, state="normal")
             self.canvas.itemconfigure(self.text_main, state="normal")
             self.canvas.itemconfigure(self.btn_window, state="normal")
@@ -409,25 +447,32 @@ class MascotOverlay:
         self._walk_out()
 
     def _walk_out(self):
-        # Hide question & buttons, keep walking forward off-screen to left
+        # Hide question & buttons
         self.canvas.itemconfigure(self.text_shadow, state="hidden")
         self.canvas.itemconfigure(self.text_main, state="hidden")
         self.canvas.itemconfigure(self.btn_window, state="hidden")
+        # Resume pure walking cycle
+        self.step_idx = 0
+        self._cycle_walk()
         self._walk_out_step()
 
     def _walk_out_step(self):
         if not self.is_active:
             return
-        speed = 22
+        speed = 6
         if self.curr_x > -self.w - 50:
             self.curr_x -= speed
+            self.total_steps += 1
+            bob = int(math.sin(self.total_steps * 0.28) * 4)
+            if self.char_id:
+                self.canvas.coords(self.char_id, self.w // 2, 265 + bob)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
-            self.move_job = self.win.after(22, self._walk_out_step)
+            self.move_job = self.win.after(25, self._walk_out_step)
         else:
             # Fully off-screen
-            if self.gif_job:
-                self.win.after_cancel(self.gif_job)
-                self.gif_job = None
+            if self.anim_job:
+                self.win.after_cancel(self.anim_job)
+                self.anim_job = None
             self.win.withdraw()
             self.is_active = False
             if self.on_close:
