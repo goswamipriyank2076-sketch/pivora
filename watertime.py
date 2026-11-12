@@ -797,30 +797,40 @@ class WatertimeApp:
         self.root.protocol("WM_DELETE_WINDOW", self.hide_dashboard)
 
         # Set Application Taskbar & Window Icon (replaces default Python icon)
+        # Must call SetCurrentProcessExplicitAppUserModelID BEFORE creating any window/tray
         if sys.platform == "win32":
             try:
                 import ctypes
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("pivora.watertime.companion.1.0")
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "PivoraApp.WaterReminder.1.0"
+                )
             except Exception:
                 pass
-            ico_file = BASE_DIR / "app_icon.ico"
-            if ico_file.exists():
-                try:
-                    self.root.iconbitmap(default=str(ico_file.resolve()))
-                except Exception:
-                    pass
 
+        ico_file = BASE_DIR / "app_icon.ico"
         png_file = BASE_DIR / "app_icon.png"
+
+        # iconbitmap works on Windows for the title bar
+        if sys.platform == "win32" and ico_file.exists():
+            try:
+                self.root.iconbitmap(default=str(ico_file.resolve()))
+            except Exception:
+                pass
+
+        # iconphoto works cross-platform (and overrides in notification area on some systems)
         if png_file.exists():
             try:
-                self._app_window_icon = ImageTk.PhotoImage(file=str(png_file.resolve()), master=self.root)
+                self._app_window_icon = ImageTk.PhotoImage(
+                    Image.open(str(png_file.resolve())).resize((64, 64), Image.Resampling.LANCZOS),
+                    master=self.root
+                )
                 self.root.iconphoto(True, self._app_window_icon)
             except Exception:
                 pass
 
         self._init_theme()
         self._build_dashboard()
-        self._center_window(490, 510)
+        self._center_window(490, 540)
 
         # Mascot Overlay (Screen Walker)
         self.mascot = MascotOverlay(self.root, self.data, on_close=self.on_mascot_closed)
@@ -1031,15 +1041,36 @@ class WatertimeApp:
             font=("Segoe UI", 8, "bold"), fg=TEXT_MUTED, bg=CARD_BG
         ).pack(anchor="w", pady=(0, 2))
 
-        self.canvas_chart = tk.Canvas(card_activity, width=420, height=52, bg=CARD_BG, highlightthickness=0)
+        self.canvas_chart = tk.Canvas(card_activity, width=420, height=58, bg=CARD_BG, highlightthickness=0)
         self.canvas_chart.pack(fill="x")
         self._render_weekly_chart()
 
         # ── TAB 2: Preferences & Schedule ──
         self.tab_pref = tk.Frame(self.container, bg=BG_MAIN)
 
+        # Scrollable inner frame for preferences
+        pref_canvas = tk.Canvas(self.tab_pref, bg=BG_MAIN, highlightthickness=0, bd=0)
+        pref_scroll = tk.Scrollbar(self.tab_pref, orient="vertical", command=pref_canvas.yview)
+        pref_canvas.configure(yscrollcommand=pref_scroll.set)
+        pref_canvas.pack(side="left", fill="both", expand=True)
+
+        pref_inner = tk.Frame(pref_canvas, bg=BG_MAIN)
+        pref_inner_window = pref_canvas.create_window((0, 0), window=pref_inner, anchor="nw")
+
+        def _on_pref_resize(event):
+            pref_canvas.itemconfig(pref_inner_window, width=event.width)
+        def _on_pref_configure(event):
+            pref_canvas.configure(scrollregion=pref_canvas.bbox("all"))
+        pref_canvas.bind("<Configure>", _on_pref_resize)
+        pref_inner.bind("<Configure>", _on_pref_configure)
+
+        def _pref_mousewheel(event):
+            pref_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        pref_canvas.bind("<MouseWheel>", _pref_mousewheel)
+        pref_inner.bind("<MouseWheel>", _pref_mousewheel)
+
         # Card 1: Profile & Daily Target
-        card_p1 = tk.Frame(self.tab_pref, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p1 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
         card_p1.pack(fill="x", pady=(0, 8))
 
         tk.Label(card_p1, text="👤  PERSONAL PROFILE & TARGET", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
@@ -1083,7 +1114,7 @@ class WatertimeApp:
         self.combo_goal.pack(side="left", padx=4)
 
         # Card 2: Schedule & Quiet Hours
-        card_p2 = tk.Frame(self.tab_pref, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p2 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
         card_p2.pack(fill="x", pady=(0, 8))
 
         tk.Label(card_p2, text="⏰  REMINDERS & SCHEDULE", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
@@ -1094,7 +1125,7 @@ class WatertimeApp:
         tk.Label(r_int, text="Remind Every:", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=15, anchor="w").pack(side="left")
 
         self.interval_options = {
-            "1 min (Test)": 1,
+            "1 min": 1,
             "5 mins": 5,
             "10 mins": 10,
             "15 mins": 15,
@@ -1166,7 +1197,7 @@ class WatertimeApp:
         ).pack(anchor="w", pady=(1, 0))
 
         # Card 3: System & Quick Controls
-        card_p3 = tk.Frame(self.tab_pref, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
+        card_p3 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
         card_p3.pack(fill="x", pady=(0, 4))
 
         tk.Label(card_p3, text="⚡  SYSTEM & SHORTCUTS", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
@@ -1183,7 +1214,7 @@ class WatertimeApp:
         chk_autostart.pack(anchor="w")
 
         tk.Label(
-            card_p3, text="⌨️ Hotkey: Press Ctrl + Alt + W anywhere to quickly log a glass",
+            card_p3, text="⌨️ Hotkey: Ctrl + Alt + W  —  Log a glass from anywhere",
             font=("Segoe UI", 8), fg=TEXT_MUTED, bg=CARD_BG
         ).pack(anchor="w", pady=(6, 4))
 
@@ -1202,6 +1233,13 @@ class WatertimeApp:
             r_reset_row, text="(Clears today's glasses back to 0)",
             font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG
         ).pack(side="left", padx=8)
+
+        # Bind mousewheel to all children of pref_inner for smooth scrolling
+        def _bind_scroll_children(widget):
+            widget.bind("<MouseWheel>", _pref_mousewheel)
+            for child in widget.winfo_children():
+                _bind_scroll_children(child)
+        _bind_scroll_children(pref_inner)
 
         # Show initial tab
         self.tab_tracker.pack(fill="both", expand=True)
@@ -1347,7 +1385,6 @@ class WatertimeApp:
             disp = next((k for k, v in self.interval_options.items() if v == mins), f"{mins} mins")
             self.combo_interval.set(disp)
             self._update_status_label()
-            self.show_quick_toast(f"⏰ Interval set to {mins} min(s)")
 
     def on_goal_selected(self, event=None):
         choice = self.combo_goal.get().strip()
@@ -1363,7 +1400,6 @@ class WatertimeApp:
             disp = next((k for k, v in self.goal_options.items() if v == goal), f"{goal} glasses ({goal * 0.25:.1f} L)")
             self.combo_goal.set(disp)
             self._refresh_ui_progress()
-            self.show_quick_toast(f"🎯 Daily target set to {goal} glasses")
 
     def on_work_hours_toggled(self):
         self.data.set_work_hours_enabled(self.var_work_hours.get())
