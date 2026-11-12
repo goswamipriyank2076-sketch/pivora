@@ -43,6 +43,36 @@ DEFAULT_WORK_START       = 9
 DEFAULT_WORK_END         = 18
 TRANS_COLOR              = "#010101"
 
+def hour_to_12h(h: int) -> str:
+    h = int(h) % 24
+    if h == 0:
+        return "12:00 AM"
+    elif h < 12:
+        return f"{h:02d}:00 AM"
+    elif h == 12:
+        return "12:00 PM"
+    else:
+        return f"{h - 12:02d}:00 PM"
+
+def parse_12h_hour(val: str, default: int = 9) -> int:
+    s = str(val).strip().upper()
+    is_pm = "PM" in s
+    is_am = "AM" in s
+    m = re.search(r'(\d{1,2})(?::(\d{2}))?', s)
+    if not m:
+        return default
+    h = int(m.group(1))
+    if is_pm:
+        if h < 12:
+            h += 12
+    elif is_am:
+        if h == 12:
+            h = 0
+    else:
+        if 1 <= h <= 6:
+            h += 12
+    return max(0, min(23, h))
+
 # Warm, Friendly Hydration Palette
 BG_MAIN          = "#F0F9FF"   # Soft Sky Blue Mist
 CARD_BG          = "#FFFFFF"   # Pure White Card
@@ -198,8 +228,12 @@ class WaterData:
                 raw.setdefault("goal", DEFAULT_GOAL)
                 raw.setdefault("glasses_count", 0)
                 raw.setdefault("work_hours_enabled", True)
-                raw.setdefault("work_start_hour", DEFAULT_WORK_START)
-                if raw.get("work_end_hour") == 21:
+                if raw.get("work_start_hour") in (8, None):
+                    raw["work_start_hour"] = DEFAULT_WORK_START
+                else:
+                    raw.setdefault("work_start_hour", DEFAULT_WORK_START)
+
+                if raw.get("work_end_hour") in (20, 21, None):
                     raw["work_end_hour"] = DEFAULT_WORK_END
                 else:
                     raw.setdefault("work_end_hour", DEFAULT_WORK_END)
@@ -215,7 +249,11 @@ class WaterData:
         goal = prev.get("goal", DEFAULT_GOAL) if prev else DEFAULT_GOAL
         work_enabled = prev.get("work_hours_enabled", True) if prev else True
         work_start = prev.get("work_start_hour", DEFAULT_WORK_START) if prev else DEFAULT_WORK_START
+        if work_start == 8:
+            work_start = DEFAULT_WORK_START
         work_end = prev.get("work_end_hour", DEFAULT_WORK_END) if prev else DEFAULT_WORK_END
+        if work_end in (20, 21):
+            work_end = DEFAULT_WORK_END
         pause_on_meet = prev.get("pause_on_meeting", True) if prev else True
         history = dict(prev.get("history", {})) if prev else {}
 
@@ -1141,9 +1179,9 @@ class WatertimeApp:
         )
         chk_hours.pack(side="left")
 
-        hour_vals = [f"{h:02d}:00" for h in range(24)]
-        self.combo_h_start = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="normal", font=("Segoe UI", 8))
-        self.combo_h_start.set(f"{self.data.work_start_hour:02d}:00")
+        hour_vals = [hour_to_12h(h) for h in range(24)]
+        self.combo_h_start = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=9, state="normal", font=("Segoe UI", 8))
+        self.combo_h_start.set(hour_to_12h(self.data.work_start_hour))
         self.combo_h_start.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
         self.combo_h_start.bind("<Return>", self.on_work_hours_changed)
         self.combo_h_start.bind("<FocusOut>", self.on_work_hours_changed)
@@ -1151,8 +1189,8 @@ class WatertimeApp:
 
         tk.Label(r_hours, text="to", font=("Segoe UI", 8), bg=CARD_BG, fg=TEXT_MUTED).pack(side="left")
 
-        self.combo_h_end = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="normal", font=("Segoe UI", 8))
-        self.combo_h_end.set(f"{self.data.work_end_hour:02d}:00")
+        self.combo_h_end = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=9, state="normal", font=("Segoe UI", 8))
+        self.combo_h_end.set(hour_to_12h(self.data.work_end_hour))
         self.combo_h_end.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
         self.combo_h_end.bind("<Return>", self.on_work_hours_changed)
         self.combo_h_end.bind("<FocusOut>", self.on_work_hours_changed)
@@ -1397,24 +1435,13 @@ class WatertimeApp:
         self.show_quick_toast(f"🔇 Meeting Auto-Pause: {status}")
 
     def on_work_hours_changed(self, event=None):
-        def parse_hour(val: str, default: int) -> int:
-            s = val.strip()
-            if ":" in s:
-                parts = s.split(":")
-                if parts[0].isdigit():
-                    return max(0, min(23, int(parts[0])))
-            m = re.search(r'\d+', s)
-            if m:
-                return max(0, min(23, int(m.group(0))))
-            return default
-
         try:
-            start_h = parse_hour(self.combo_h_start.get(), self.data.work_start_hour)
-            end_h = parse_hour(self.combo_h_end.get(), self.data.work_end_hour)
+            start_h = parse_12h_hour(self.combo_h_start.get(), self.data.work_start_hour)
+            end_h = parse_12h_hour(self.combo_h_end.get(), self.data.work_end_hour)
             self.data.set_work_start_hour(start_h)
             self.data.set_work_end_hour(end_h)
-            self.combo_h_start.set(f"{start_h:02d}:00")
-            self.combo_h_end.set(f"{end_h:02d}:00")
+            self.combo_h_start.set(hour_to_12h(start_h))
+            self.combo_h_end.set(hour_to_12h(end_h))
             self._update_status_label()
         except Exception:
             pass
@@ -1529,9 +1556,10 @@ class WatertimeApp:
             s_h = self.data.work_start_hour
             e_h = self.data.work_end_hour
             if not (s_h <= curr_hour < e_h):
-                self.lbl_status.config(text=f"🌙 Outside Active Hours (Resumes at {s_h:02d}:00)", fg=TEXT_MUTED)
+                resumes_str = hour_to_12h(s_h)
+                self.lbl_status.config(text=f"🌙 Outside Active Hours (Resumes at {resumes_str})", fg=TEXT_MUTED)
                 if self.tray:
-                    self.tray.title = f"Pivora 💧 [Quiet Hours until {s_h:02d}:00] • {self.data.count}/{self.data.goal}"
+                    self.tray.title = f"Pivora 💧 [Quiet Hours until {resumes_str}] • {self.data.count}/{self.data.goal}"
                 return
 
         # Check Meeting / Screen Share Suppression
