@@ -879,7 +879,7 @@ class WatertimeApp:
         self.root.title("Pivora 💧 - Daily Water Companion")
         self.root.resizable(False, False)
         self.root.configure(bg=BG_MAIN)
-        self.root.protocol("WM_DELETE_WINDOW", self.hide_dashboard)
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
         # Set Application Taskbar & Window Icon (replaces default Python icon)
         # Must call SetCurrentProcessExplicitAppUserModelID BEFORE creating any window/tray
@@ -1831,6 +1831,10 @@ class WatertimeApp:
 
     def quit_app(self, icon=None, item=None):
         global _instance_socket
+        try:
+            self.on_name_changed()
+        except Exception:
+            pass
         if self.tray:
             try:
                 self.tray.stop()
