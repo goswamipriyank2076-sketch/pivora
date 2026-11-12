@@ -40,7 +40,7 @@ DEFAULT_NAME             = "Priyank"
 DEFAULT_INTERVAL_MINUTES = 5
 DEFAULT_GOAL             = 8
 DEFAULT_WORK_START       = 9
-DEFAULT_WORK_END         = 21
+DEFAULT_WORK_END         = 18
 TRANS_COLOR              = "#010101"
 
 # Warm, Friendly Hydration Palette
@@ -199,7 +199,10 @@ class WaterData:
                 raw.setdefault("glasses_count", 0)
                 raw.setdefault("work_hours_enabled", True)
                 raw.setdefault("work_start_hour", DEFAULT_WORK_START)
-                raw.setdefault("work_end_hour", DEFAULT_WORK_END)
+                if raw.get("work_end_hour") == 21:
+                    raw["work_end_hour"] = DEFAULT_WORK_END
+                else:
+                    raw.setdefault("work_end_hour", DEFAULT_WORK_END)
                 raw.setdefault("history", {})
                 return raw
             except Exception:
@@ -791,7 +794,7 @@ class WatertimeApp:
         self.root.title("Pivora 💧 - Daily Water Companion")
         self.root.resizable(False, False)
         self.root.configure(bg=BG_MAIN)
-        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_dashboard)
 
         # Set Application Taskbar & Window Icon (replaces default Python icon)
         if sys.platform == "win32":
@@ -817,7 +820,7 @@ class WatertimeApp:
 
         self._init_theme()
         self._build_dashboard()
-        self._center_window(490, 580)
+        self._center_window(490, 510)
 
         # Mascot Overlay (Screen Walker)
         self.mascot = MascotOverlay(self.root, self.data, on_close=self.on_mascot_closed)
@@ -982,8 +985,11 @@ class WatertimeApp:
         )
         self.lbl_hero_sub.pack(anchor="w", pady=(0, 6))
 
+        btn_action_row = tk.Frame(info_f, bg=CARD_BG)
+        btn_action_row.pack(anchor="w")
+
         btn_drink = tk.Button(
-            info_f, text="+ Drink a Glass 💧",
+            btn_action_row, text="+ Drink a Glass 💧",
             font=("Segoe UI", 9, "bold"), bg=OCEAN_BLUE, fg="#FFFFFF",
             activebackground=OCEAN_DARK, activeforeground="#FFFFFF",
             relief="flat", bd=0, padx=12, pady=5, cursor="hand2",
@@ -991,7 +997,16 @@ class WatertimeApp:
         )
         btn_drink.bind("<Enter>", lambda e: btn_drink.configure(bg=OCEAN_DARK))
         btn_drink.bind("<Leave>", lambda e: btn_drink.configure(bg=OCEAN_BLUE))
-        btn_drink.pack(anchor="w")
+        btn_drink.pack(side="left")
+
+        btn_reset_quick = tk.Button(
+            btn_action_row, text="🔄 Reset",
+            font=("Segoe UI", 8, "bold"), bg="#F1F5F9", fg="#DC2626",
+            activebackground="#FEE2E2", activeforeground="#991B1B",
+            relief="flat", bd=0, padx=8, pady=5, cursor="hand2",
+            command=self.reset_count
+        )
+        btn_reset_quick.pack(side="left", padx=(8, 0))
 
         # Visual Glasses Tracker Card
         card_glasses = tk.Frame(self.tab_tracker, bg=CARD_BG, padx=14, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
@@ -1079,7 +1094,7 @@ class WatertimeApp:
         tk.Label(r_int, text="Remind Every:", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=15, anchor="w").pack(side="left")
 
         self.interval_options = {
-            "1 min": 1,
+            "1 min (Test)": 1,
             "5 mins": 5,
             "10 mins": 10,
             "15 mins": 15,
@@ -1157,8 +1172,9 @@ class WatertimeApp:
         tk.Label(card_p3, text="⚡  SYSTEM & SHORTCUTS", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 6))
 
         self.var_autostart = tk.BooleanVar(value=is_autostart_enabled())
+        autostart_text = "Start Pivora automatically on PC boot" if sys.platform == "win32" else "Start Pivora automatically on Linux startup"
         chk_autostart = tk.Checkbutton(
-            card_p3, text="Start Pivora automatically on Windows boot",
+            card_p3, text=autostart_text,
             variable=self.var_autostart, onvalue=True, offvalue=False,
             font=("Segoe UI", 9), bg=CARD_BG, fg=TEXT_SECONDARY,
             activebackground=CARD_BG, selectcolor="#F0F9FF",
@@ -1166,49 +1182,29 @@ class WatertimeApp:
         )
         chk_autostart.pack(anchor="w")
 
-        r_bottom_ctrl = tk.Frame(card_p3, bg=CARD_BG)
-        r_bottom_ctrl.pack(fill="x", pady=(6, 0))
-
         tk.Label(
-            r_bottom_ctrl, text="⌨️ Hotkey: Press Ctrl + Alt + W anywhere to quickly log a glass",
+            card_p3, text="⌨️ Hotkey: Press Ctrl + Alt + W anywhere to quickly log a glass",
             font=("Segoe UI", 8), fg=TEXT_MUTED, bg=CARD_BG
-        ).pack(side="left")
+        ).pack(anchor="w", pady=(6, 4))
+
+        r_reset_row = tk.Frame(card_p3, bg=CARD_BG)
+        r_reset_row.pack(fill="x", pady=(4, 2))
 
         btn_reset_cnt = tk.Button(
-            r_bottom_ctrl, text="🔄 Reset Count", font=("Segoe UI", 8),
-            bg="#F1F5F9", fg="#DC2626", relief="flat", bd=0, padx=8, pady=2, cursor="hand2",
+            r_reset_row, text="🔄 Reset Today's Count to 0", font=("Segoe UI", 8, "bold"),
+            bg="#FEE2E2", fg="#DC2626", activebackground="#FCA5A5", activeforeground="#991B1B",
+            relief="flat", bd=0, padx=10, pady=4, cursor="hand2",
             command=self.reset_count
         )
-        btn_reset_cnt.pack(side="right")
+        btn_reset_cnt.pack(side="left")
+
+        tk.Label(
+            r_reset_row, text="(Clears today's glasses back to 0)",
+            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG
+        ).pack(side="left", padx=8)
 
         # Show initial tab
         self.tab_tracker.pack(fill="both", expand=True)
-
-        # 4. Common Bottom Action Footer (Always Visible on Both Tabs)
-        footer_frame = tk.Frame(self.root, bg=BG_MAIN)
-        footer_frame.pack(fill="x", padx=20, pady=(6, 10))
-
-        btn_test = tk.Button(
-            footer_frame, text="🚶 Test Mascot Animation",
-            font=("Segoe UI", 9, "bold"), bg=AMBER_GOLD, fg="#FFFFFF",
-            activebackground="#D97706", activeforeground="#FFFFFF",
-            relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
-            command=self.test_mascot_now
-        )
-        btn_test.bind("<Enter>", lambda e: btn_test.configure(bg="#D97706"))
-        btn_test.bind("<Leave>", lambda e: btn_test.configure(bg=AMBER_GOLD))
-        btn_test.pack(side="left")
-
-        btn_min = tk.Button(
-            footer_frame, text="Minimize to Tray",
-            font=("Segoe UI", 9), bg="#E2E8F0", fg=TEXT_DARK,
-            activebackground="#CBD5E1", activeforeground=TEXT_DARK,
-            relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
-            command=self.hide_dashboard
-        )
-        btn_min.bind("<Enter>", lambda e: btn_min.configure(bg="#CBD5E1"))
-        btn_min.bind("<Leave>", lambda e: btn_min.configure(bg="#E2E8F0"))
-        btn_min.pack(side="right")
 
     def switch_tab(self, tab_name: str):
         """Switch smoothly between Tracker and Preferences views."""
@@ -1563,8 +1559,11 @@ class WatertimeApp:
 
     def hide_dashboard(self):
         self.on_name_changed()
-        self.root.withdraw()
-        self._update_status_label()
+        if self.tray:
+            self.root.withdraw()
+            self._update_status_label()
+        else:
+            self.quit_app()
 
     def show_dashboard(self, icon=None, item=None, tab="tracker"):
         self.switch_tab(tab)
