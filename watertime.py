@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import random
+import re
 import threading
 import subprocess
 import tkinter as tk
@@ -212,6 +213,7 @@ class WaterData:
         work_enabled = prev.get("work_hours_enabled", True) if prev else True
         work_start = prev.get("work_start_hour", DEFAULT_WORK_START) if prev else DEFAULT_WORK_START
         work_end = prev.get("work_end_hour", DEFAULT_WORK_END) if prev else DEFAULT_WORK_END
+        pause_on_meet = prev.get("pause_on_meeting", True) if prev else True
         history = dict(prev.get("history", {})) if prev else {}
 
         if prev and "date" in prev and "glasses_count" in prev:
@@ -226,6 +228,7 @@ class WaterData:
             "work_hours_enabled": work_enabled,
             "work_start_hour": work_start,
             "work_end_hour": work_end,
+            "pause_on_meeting": pause_on_meet,
             "history": history
         }
 
@@ -333,6 +336,14 @@ class WaterData:
         self._save()
 
     @property
+    def pause_on_meeting(self):
+        return self.data.get("pause_on_meeting", True)
+
+    def set_pause_on_meeting(self, val: bool):
+        self.data["pause_on_meeting"] = bool(val)
+        self._save()
+
+    @property
     def streak(self):
         today = str(date.today())
         today_count = self.count
@@ -423,6 +434,68 @@ Comment=Water Drink Reminder
                     desktop_file.unlink()
                 except Exception:
                     pass
+
+
+# ─────────────────────────────────────────────────────────────────
+# Meeting, Screen Share & Presentation Detection
+# ─────────────────────────────────────────────────────────────────
+def is_meeting_or_screenshare_active() -> tuple[bool, str]:
+    """Detect if the user is in an active meeting, presenting, or sharing their screen."""
+    if sys.platform != "win32":
+        return False, ""
+
+    # 1. Native Windows User Notification State (Presentation Mode & Direct3D Fullscreen)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        state = ctypes.c_int()
+        # QUNS_PRESENTATION_MODE = 4, QUNS_RUNNING_D3D_FULL_SCREEN = 3
+        if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) == 0:
+            if state.value == 4:
+                return True, "Presentation Mode"
+            elif state.value == 3:
+                return True, "Fullscreen Presentation / App"
+    except Exception:
+        pass
+
+    # 2. Check Visible Windows on Input Desktop for Meetings / Screen Shares
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        hDesk = user32.OpenInputDesktop(0, False, 0x01FF)
+        if hDesk:
+            titles = []
+            def enum_proc(hwnd, lparam):
+                if user32.IsWindowVisible(hwnd):
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        buff = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(hwnd, buff, length + 1)
+                        titles.append(buff.value)
+                return True
+
+            EnumDesktopProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            user32.EnumDesktopWindows(hDesk, EnumDesktopProc(enum_proc), 0)
+            user32.CloseDesktop(hDesk)
+
+            meeting_keywords = [
+                "zoom meeting", "zoom webinar", "cisco webex", "webex meeting",
+                "google meet", "meet \u2013", "meet -", "teams meeting",
+                "meeting | microsoft teams", "powerpoint slide show",
+                "sharing your screen", "screen sharing", "screenshare",
+                "you are sharing", "sharing toolbar", "stop sharing"
+            ]
+
+            for t in titles:
+                t_low = t.lower()
+                for kw in meeting_keywords:
+                    if kw in t_low:
+                        return True, f"Meeting / Screen Share ({t[:26]}...)"
+    except Exception:
+        pass
+
+    return False, ""
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -720,6 +793,28 @@ class WatertimeApp:
         self.root.configure(bg=BG_MAIN)
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
+        # Set Application Taskbar & Window Icon (replaces default Python icon)
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("pivora.watertime.companion.1.0")
+            except Exception:
+                pass
+            ico_file = BASE_DIR / "app_icon.ico"
+            if ico_file.exists():
+                try:
+                    self.root.iconbitmap(default=str(ico_file.resolve()))
+                except Exception:
+                    pass
+
+        png_file = BASE_DIR / "app_icon.png"
+        if png_file.exists():
+            try:
+                self._app_window_icon = ImageTk.PhotoImage(file=str(png_file.resolve()), master=self.root)
+                self.root.iconphoto(True, self._app_window_icon)
+            except Exception:
+                pass
+
         self._init_theme()
         self._build_dashboard()
         self._center_window(490, 580)
@@ -744,19 +839,20 @@ class WatertimeApp:
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Pivora.TCombobox",
-            fieldbackground="#F8FAFC",
-            background="#FFFFFF",
+            fieldbackground="#FFFFFF",
+            background="#F0F9FF",
             foreground=TEXT_DARK,
             arrowcolor=OCEAN_BLUE,
             bordercolor=CARD_BORDER,
             lightcolor=CARD_BORDER,
-            darkcolor=CARD_BORDER
+            darkcolor=CARD_BORDER,
+            padding=3
         )
         style.map("Pivora.TCombobox",
-            fieldbackground=[("readonly", "#F8FAFC")],
-            selectbackground=[("readonly", "#E0F2FE")],
-            selectforeground=[("readonly", TEXT_DARK)],
-            foreground=[("readonly", TEXT_DARK)]
+            fieldbackground=[("focus", "#FFFFFF"), ("!disabled", "#FFFFFF")],
+            selectbackground=[("focus", "#E0F2FE"), ("!disabled", "#E0F2FE")],
+            selectforeground=[("focus", TEXT_DARK), ("!disabled", TEXT_DARK)],
+            foreground=[("focus", TEXT_DARK), ("!disabled", TEXT_DARK)]
         )
 
     def _build_dashboard(self):
@@ -961,12 +1057,14 @@ class WatertimeApp:
         }
         self.combo_goal = ttk.Combobox(
             r_goal, style="Pivora.TCombobox", values=list(self.goal_options.keys()),
-            width=18, state="readonly", font=("Segoe UI", 9)
+            width=18, state="normal", font=("Segoe UI", 9)
         )
         curr_goal = self.data.goal
         found_goal_key = next((k for k, v in self.goal_options.items() if v == curr_goal), f"{curr_goal} glasses")
         self.combo_goal.set(found_goal_key)
         self.combo_goal.bind("<<ComboboxSelected>>", self.on_goal_selected)
+        self.combo_goal.bind("<Return>", self.on_goal_selected)
+        self.combo_goal.bind("<FocusOut>", self.on_goal_selected)
         self.combo_goal.pack(side="left", padx=4)
 
         # Card 2: Schedule & Quiet Hours
@@ -981,7 +1079,7 @@ class WatertimeApp:
         tk.Label(r_int, text="Remind Every:", font=("Segoe UI", 9, "bold"), fg=TEXT_SECONDARY, bg=CARD_BG, width=15, anchor="w").pack(side="left")
 
         self.interval_options = {
-            "1 min (Test)": 1,
+            "1 min": 1,
             "5 mins": 5,
             "10 mins": 10,
             "15 mins": 15,
@@ -992,12 +1090,14 @@ class WatertimeApp:
         }
         self.combo_interval = ttk.Combobox(
             r_int, style="Pivora.TCombobox", values=list(self.interval_options.keys()),
-            width=18, state="readonly", font=("Segoe UI", 9)
+            width=18, state="normal", font=("Segoe UI", 9)
         )
         current_mins = self.data.interval_minutes
         found_key = next((k for k, v in self.interval_options.items() if v == current_mins), f"{current_mins} mins")
         self.combo_interval.set(found_key)
         self.combo_interval.bind("<<ComboboxSelected>>", self.on_interval_selected)
+        self.combo_interval.bind("<Return>", self.on_interval_selected)
+        self.combo_interval.bind("<FocusOut>", self.on_interval_selected)
         self.combo_interval.pack(side="left", padx=4)
 
         # Active Hours row
@@ -1013,22 +1113,42 @@ class WatertimeApp:
         chk_hours.pack(side="left")
 
         hour_vals = [f"{h:02d}:00" for h in range(24)]
-        self.combo_h_start = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_start = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="normal", font=("Segoe UI", 8))
         self.combo_h_start.set(f"{self.data.work_start_hour:02d}:00")
         self.combo_h_start.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
+        self.combo_h_start.bind("<Return>", self.on_work_hours_changed)
+        self.combo_h_start.bind("<FocusOut>", self.on_work_hours_changed)
         self.combo_h_start.pack(side="left", padx=4)
 
         tk.Label(r_hours, text="to", font=("Segoe UI", 8), bg=CARD_BG, fg=TEXT_MUTED).pack(side="left")
 
-        self.combo_h_end = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_end = ttk.Combobox(r_hours, style="Pivora.TCombobox", values=hour_vals, width=6, state="normal", font=("Segoe UI", 8))
         self.combo_h_end.set(f"{self.data.work_end_hour:02d}:00")
         self.combo_h_end.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
+        self.combo_h_end.bind("<Return>", self.on_work_hours_changed)
+        self.combo_h_end.bind("<FocusOut>", self.on_work_hours_changed)
         self.combo_h_end.pack(side="left", padx=4)
 
         tk.Label(
             card_p2, text="💡 Outside active hours, character reminders are paused so you can sleep peacefully.",
             font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, wraplength=410, justify="left"
         ).pack(anchor="w", pady=(3, 0))
+
+        # Meeting Mode & Screen Share Auto-Pause
+        self.var_meeting_mode = tk.BooleanVar(value=self.data.pause_on_meeting)
+        chk_meeting = tk.Checkbutton(
+            card_p2, text="Auto-pause mascot during meetings & screen share",
+            variable=self.var_meeting_mode,
+            font=("Segoe UI", 9, "bold"), bg=CARD_BG, fg=TEXT_DARK,
+            activebackground=CARD_BG, selectcolor="#F0F9FF",
+            command=self.on_meeting_mode_toggled
+        )
+        chk_meeting.pack(anchor="w", pady=(6, 0))
+
+        tk.Label(
+            card_p2, text="🛡️ Mascot automatically stays quiet during Zoom, Teams, Google Meet, or presentations.",
+            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, wraplength=410, justify="left"
+        ).pack(anchor="w", pady=(1, 0))
 
         # Card 3: System & Quick Controls
         card_p3 = tk.Frame(self.tab_pref, bg=CARD_BG, padx=16, pady=12, highlightthickness=1, highlightbackground=CARD_BORDER)
@@ -1217,28 +1337,76 @@ class WatertimeApp:
             self.lbl_greeting.config(text=self._get_greeting_str())
 
     def on_interval_selected(self, event=None):
-        choice = self.combo_interval.get()
-        mins = self.interval_options.get(choice, 5)
-        self.data.set_interval(mins)
-        self.next_reminder_time = time.time() + (mins * 60)
-        self._update_status_label()
+        choice = self.combo_interval.get().strip()
+        mins = None
+        if choice in self.interval_options:
+            mins = self.interval_options[choice]
+        else:
+            m = re.search(r'\d+', choice)
+            if m:
+                mins = max(1, min(720, int(m.group(0))))
+        if mins is not None:
+            self.data.set_interval(mins)
+            self.next_reminder_time = time.time() + (mins * 60)
+            disp = next((k for k, v in self.interval_options.items() if v == mins), f"{mins} mins")
+            self.combo_interval.set(disp)
+            self._update_status_label()
+            self.show_quick_toast(f"⏰ Interval set to {mins} min(s)")
 
     def on_goal_selected(self, event=None):
-        choice = self.combo_goal.get()
-        goal = self.goal_options.get(choice, 8)
-        self.data.set_goal(goal)
-        self._refresh_ui_progress()
+        choice = self.combo_goal.get().strip()
+        goal = None
+        if choice in self.goal_options:
+            goal = self.goal_options[choice]
+        else:
+            m = re.search(r'\d+', choice)
+            if m:
+                goal = max(1, min(50, int(m.group(0))))
+        if goal is not None:
+            self.data.set_goal(goal)
+            disp = next((k for k, v in self.goal_options.items() if v == goal), f"{goal} glasses ({goal * 0.25:.1f} L)")
+            self.combo_goal.set(disp)
+            self._refresh_ui_progress()
+            self.show_quick_toast(f"🎯 Daily target set to {goal} glasses")
 
     def on_work_hours_toggled(self):
         self.data.set_work_hours_enabled(self.var_work_hours.get())
         self._update_status_label()
 
+    def on_meeting_mode_toggled(self):
+        self.data.set_pause_on_meeting(self.var_meeting_mode.get())
+        self._update_status_label()
+        status = "Active" if self.var_meeting_mode.get() else "Disabled"
+        self.show_quick_toast(f"🔇 Meeting Auto-Pause: {status}")
+
+    def toggle_meeting_mode_tray(self):
+        new_val = not self.data.pause_on_meeting
+        self.data.set_pause_on_meeting(new_val)
+        if hasattr(self, "var_meeting_mode"):
+            self.var_meeting_mode.set(new_val)
+        self.root.after(0, self._update_status_label)
+        status = "Active" if new_val else "Disabled"
+        self.show_quick_toast(f"🔇 Meeting Auto-Pause: {status}")
+
     def on_work_hours_changed(self, event=None):
+        def parse_hour(val: str, default: int) -> int:
+            s = val.strip()
+            if ":" in s:
+                parts = s.split(":")
+                if parts[0].isdigit():
+                    return max(0, min(23, int(parts[0])))
+            m = re.search(r'\d+', s)
+            if m:
+                return max(0, min(23, int(m.group(0))))
+            return default
+
         try:
-            start_h = int(self.combo_h_start.get().split(":")[0])
-            end_h = int(self.combo_h_end.get().split(":")[0])
+            start_h = parse_hour(self.combo_h_start.get(), self.data.work_start_hour)
+            end_h = parse_hour(self.combo_h_end.get(), self.data.work_end_hour)
             self.data.set_work_start_hour(start_h)
             self.data.set_work_end_hour(end_h)
+            self.combo_h_start.set(f"{start_h:02d}:00")
+            self.combo_h_end.set(f"{end_h:02d}:00")
             self._update_status_label()
         except Exception:
             pass
@@ -1354,6 +1522,15 @@ class WatertimeApp:
                     self.tray.title = f"Pivora 💧 [Quiet Hours until {s_h:02d}:00] • {self.data.count}/{self.data.goal}"
                 return
 
+        # Check Meeting / Screen Share Suppression
+        if self.data.pause_on_meeting:
+            in_meeting, meeting_desc = is_meeting_or_screenshare_active()
+            if in_meeting:
+                self.lbl_status.config(text=f"🖥️ {meeting_desc} (Mascot Paused)", fg="#D97706")
+                if self.tray:
+                    self.tray.title = f"Pivora 💧 [Meeting Mode Active] • {self.data.count}/{self.data.goal}"
+                return
+
         # Normal Active
         secs_left = max(0, int(self.next_reminder_time - now))
         mins_left = secs_left // 60
@@ -1378,6 +1555,10 @@ class WatertimeApp:
 
     def test_mascot_now(self):
         self.on_name_changed()
+        if self.data.pause_on_meeting:
+            in_meet, desc = is_meeting_or_screenshare_active()
+            if in_meet:
+                self.show_quick_toast(f"💡 {desc} active. Testing mascot anyway!")
         self.mascot.trigger()
 
     def hide_dashboard(self):
@@ -1469,6 +1650,7 @@ class WatertimeApp:
                 pystray.MenuItem("🔕 Snooze / DND", snooze_menu),
                 pystray.MenuItem("⏱️ Change Interval", interval_menu),
                 pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.show_dashboard(tab="pref")),
+                pystray.MenuItem("🛡️ Auto-Pause in Meetings", lambda icon, item: self.toggle_meeting_mode_tray(), checked=lambda item: self.data.pause_on_meeting),
                 pystray.MenuItem("🔄 Reset Today's Count", lambda icon, item: self.reset_count()),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("❌ Quit Pivora", lambda icon, item: self.quit_app())
@@ -1503,6 +1685,14 @@ class WatertimeApp:
             if not (s_h <= curr_hour < e_h):
                 self._update_status_label()
                 self.root.after(1000, self._check_timer_loop)
+                return
+
+        # Check Meeting / Screen Share Suppression
+        if self.data.pause_on_meeting:
+            in_meeting, _ = is_meeting_or_screenshare_active()
+            if in_meeting:
+                self._update_status_label()
+                self.root.after(2000, self._check_timer_loop)
                 return
 
         # Check interval trigger
