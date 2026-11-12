@@ -1,7 +1,8 @@
 [Desktop Entry]
-Name=Watertime
-Comment=Water Drink Reminder with Animated Character
-Exec=python3 watertime.py
+Name=Pivora 💧
+Comment=Daily Water Drink Reminder with 3D Mascot
+Exec=bash -c "cd '$(dirname %k)' && ./run_watertime.sh"
+Icon=pivora
 Terminal=false
 Type=Application
 Categories=Utility;Health;
