@@ -1,6 +1,7 @@
 """
-Watertime - Walking Mascot Water Reminder
-A transparent 3D character walks directly onto your active screen/application,
+Watertime (Pivora) - Walking Mascot Water Reminder
+Modern Executive Dark Theme Edition.
+A transparent 3D character walks directly onto your active screen,
 displays friendly speech bubbles to remind you to drink water, and tracks daily intake & streaks!
 """
 
@@ -25,7 +26,7 @@ except ImportError:
     sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────────
-# Constants & Colors
+# Modern Obsidian & Cyan Theme Constants
 # ─────────────────────────────────────────────────────────────────
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys._MEIPASS)
@@ -42,13 +43,19 @@ DEFAULT_WORK_START       = 9
 DEFAULT_WORK_END         = 21
 TRANS_COLOR              = "#010101"
 
-BG_COLOR    = "#E1F5FE"
-BLUE_MID    = "#0288D1"
-BLUE_DARK   = "#01579B"
-WHITE       = "#FFFFFF"
-TEXT_COLOR  = "#01579B"
-BTN_DRINK   = "#0288D1"
-BTN_SKIP    = "#78909C"
+# Executive Dark Palette
+BG_COLOR         = "#0B0F19"   # Obsidian Dark Background
+SURFACE_COLOR    = "#111827"   # Elevated Card Surface
+SURFACE_BORDER   = "#1F2937"   # Subtle Card Border
+SURFACE_MUTED    = "#1E293B"   # Pill / Input / Track Surface
+TEXT_WHITE       = "#F8FAFC"   # Bright Title Text
+TEXT_MUTED       = "#94A3B8"   # Secondary Text
+TEXT_DIM         = "#64748B"   # Labels & Caps
+CYAN_ACCENT      = "#0EA5E9"   # Primary Cyan Accent
+CYAN_HOVER       = "#0284C7"   # Cyan Hover
+EMERALD_GREEN    = "#10B981"   # Success / Target Met
+AMBER_ACCENT     = "#F59E0B"   # Streak / Warning
+AMBER_HOVER      = "#D97706"
 
 MASCOT_QUOTES = [
     "Hey {name}!\nTime for a refreshing sip! 💧",
@@ -328,25 +335,22 @@ Comment=Water Drink Reminder
 # Dynamic Tray Icon with Live Count Badge
 # ─────────────────────────────────────────────────────────────────
 def create_tray_icon_image(count=0, goal=8, size=64):
-    """Draw a crisp water droplet with a live numerical badge for current intake."""
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Water droplet
     cx, cy = size // 2 - 4, size // 2 + 5
     r = size // 3 - 2
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=BLUE_MID, outline=BLUE_DARK, width=2)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill="#0288D1", outline="#01579B", width=2)
     tip_x, tip_y = cx, 4
     left_x, left_y = cx - r + 3, cy - 3
     right_x, right_y = cx + r - 3, cy - 3
-    draw.polygon([(tip_x, tip_y), (left_x, left_y), (right_x, right_y)], fill=BLUE_MID, outline=BLUE_MID)
+    draw.polygon([(tip_x, tip_y), (left_x, left_y), (right_x, right_y)], fill="#0288D1", outline="#0288D1")
     draw.ellipse([cx - r // 3, cy - r // 2, cx, cy - r // 6], fill=(255, 255, 255, 200))
 
-    # Numerical badge in corner
     if count >= 0:
         bx, by = size - 17, size - 17
         br = 15
-        bg_col = "#2E7D32" if count >= goal else "#E65100"
+        bg_col = "#10B981" if count >= goal else "#F59E0B"
         draw.ellipse([bx - br, by - br, bx + br, by + br], fill=bg_col, outline="#FFFFFF", width=2)
         txt = str(count) if count < 100 else "99+"
         bbox = draw.textbbox((0, 0), txt)
@@ -446,7 +450,7 @@ class MascotOverlay:
         self.bubble_text = self.canvas.create_text(
             self.w // 2, 45,
             text="", font=("Segoe UI", 11, "bold"),
-            fill=BLUE_DARK, justify="center"
+            fill="#01579B", justify="center"
         )
 
         # Action Buttons
@@ -489,7 +493,7 @@ class MascotOverlay:
             cx - 9, y2 - 2,
             cx + 9, y2 - 2,
             cx, y2 + 13
-        ], fill="#FFFFFF", outline=BLUE_MID, width=2)
+        ], fill="#FFFFFF", outline="#0288D1", width=2)
 
         pts = [
             x1 + r, y1,      x2 - r, y1,      x2, y1,
@@ -497,7 +501,7 @@ class MascotOverlay:
             x2 - r, y2,      x1 + r, y2,      x1, y2,
             x1, y2 - r,      x1, y1 + r,      x1, y1
         ]
-        bubble = self.canvas.create_polygon(pts, smooth=True, fill="#FFFFFF", outline=BLUE_MID, width=2)
+        bubble = self.canvas.create_polygon(pts, smooth=True, fill="#FFFFFF", outline="#0288D1", width=2)
         seam = self.canvas.create_rectangle(cx - 7, y2 - 3, cx + 7, y2 + 1, fill="#FFFFFF", outline="#FFFFFF")
         return [tail, bubble, seam]
 
@@ -639,7 +643,7 @@ class MascotOverlay:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Main Application Dashboard & Controller
+# Modern Executive Dashboard (Tailwind & Linear Aesthetic)
 # ─────────────────────────────────────────────────────────────────
 class WatertimeApp:
     def __init__(self):
@@ -649,13 +653,14 @@ class WatertimeApp:
 
         # Root Window
         self.root = tk.Tk()
-        self.root.title("Watertime 💧 - Dashboard & Settings")
+        self.root.title("Pivora 💧 - Modern Water Dashboard")
         self.root.resizable(False, False)
         self.root.configure(bg=BG_COLOR)
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
+        self._init_modern_theme()
         self._build_dashboard()
-        self._center_window(460, 615)
+        self._center_window(460, 630)
 
         # Mascot Overlay
         self.mascot = MascotOverlay(self.root, self.data, on_close=self.on_mascot_closed)
@@ -673,115 +678,166 @@ class WatertimeApp:
         # Timer loop
         self._check_timer_loop()
 
+    def _init_modern_theme(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Dark.TCombobox",
+            fieldbackground=SURFACE_MUTED,
+            background=SURFACE_MUTED,
+            foreground=TEXT_WHITE,
+            arrowcolor=CYAN_ACCENT,
+            bordercolor="#334155",
+            lightcolor="#334155",
+            darkcolor="#334155"
+        )
+        style.map("Dark.TCombobox",
+            fieldbackground=[("readonly", SURFACE_MUTED)],
+            selectbackground=[("readonly", SURFACE_MUTED)],
+            selectforeground=[("readonly", TEXT_WHITE)],
+            foreground=[("readonly", TEXT_WHITE)]
+        )
+
     def _build_dashboard(self):
-        # 1. Header Frame with Streak Badge
+        # 1. Top Header Frame
         header_frame = tk.Frame(self.root, bg=BG_COLOR)
-        header_frame.pack(fill="x", padx=25, pady=(12, 2))
+        header_frame.pack(fill="x", padx=22, pady=(16, 4))
+
+        # Brand
+        brand_frame = tk.Frame(header_frame, bg=BG_COLOR)
+        brand_frame.pack(side="left")
 
         tk.Label(
-            header_frame, text="Watertime 💧",
-            font=("Segoe UI", 18, "bold"), fg=BLUE_DARK, bg=BG_COLOR
-        ).pack(side="left")
+            brand_frame, text="💧 PIVORA",
+            font=("Segoe UI", 16, "bold"), fg=TEXT_WHITE, bg=BG_COLOR
+        ).pack(anchor="w")
 
+        tk.Label(
+            brand_frame, text="Smart Desktop Hydration",
+            font=("Segoe UI", 8), fg=TEXT_DIM, bg=BG_COLOR
+        ).pack(anchor="w")
+
+        # Streak Pill Badge
         self.lbl_streak = tk.Label(
             header_frame, text=f"🔥 {self.data.streak} Day Streak",
-            font=("Segoe UI", 10, "bold"), fg="#D84315", bg="#FFECB3",
-            padx=10, pady=3, relief="groove", bd=1
+            font=("Segoe UI", 9, "bold"), fg="#FBBF24", bg="#291805",
+            padx=10, pady=4, relief="flat", highlightthickness=1, highlightbackground="#78350F"
         )
         self.lbl_streak.pack(side="right")
 
-        # Status / Snooze Bar
+        # Status & Snooze Pill Bar
         status_bar = tk.Frame(self.root, bg=BG_COLOR)
-        status_bar.pack(fill="x", padx=25, pady=(2, 6))
+        status_bar.pack(fill="x", padx=22, pady=(2, 10))
 
         self.lbl_status = tk.Label(
-            status_bar, text="🟢 Reminders Active",
-            font=("Segoe UI", 9, "bold"), fg="#2E7D32", bg=BG_COLOR
+            status_bar, text="🟢 Active (Next in 5m)",
+            font=("Segoe UI", 9, "bold"), fg="#34D399", bg=BG_COLOR
         )
         self.lbl_status.pack(side="left")
 
-        # Quick Snooze / DND Buttons
+        # Quick Snooze Pills
         snooze_btns = tk.Frame(status_bar, bg=BG_COLOR)
         snooze_btns.pack(side="right")
-        tk.Label(snooze_btns, text="Snooze:", font=("Segoe UI", 8), fg="#455A64", bg=BG_COLOR).pack(side="left", padx=2)
+        tk.Label(snooze_btns, text="Snooze:", font=("Segoe UI", 8), fg=TEXT_DIM, bg=BG_COLOR).pack(side="left", padx=2)
 
         for label, mins in [("30m", 30), ("1h", 60), ("2h", 120)]:
             b = tk.Button(
-                snooze_btns, text=label, font=("Segoe UI", 8),
-                bg="#ECEFF1", fg="#37474F", relief="flat", padx=5, pady=1, cursor="hand2",
+                snooze_btns, text=label, font=("Segoe UI", 8, "bold"),
+                bg=SURFACE_MUTED, fg="#CBD5E1", relief="flat", bd=0, padx=6, pady=1, cursor="hand2",
                 command=lambda m=mins: self.set_snooze(m)
             )
+            b.bind("<Enter>", lambda e, btn=b: btn.configure(bg="#334155"))
+            b.bind("<Leave>", lambda e, btn=b: btn.configure(bg=SURFACE_MUTED))
             b.pack(side="left", padx=2)
 
         self.btn_resume = tk.Button(
             snooze_btns, text="▶ Resume", font=("Segoe UI", 8, "bold"),
-            bg="#81C784", fg="#1B5E20", relief="flat", padx=6, pady=1, cursor="hand2",
+            bg="#065F46", fg="#6EE7B7", relief="flat", bd=0, padx=7, pady=1, cursor="hand2",
             command=lambda: self.set_snooze(0)
         )
+        self.btn_resume.bind("<Enter>", lambda e: self.btn_resume.configure(bg="#047857"))
+        self.btn_resume.bind("<Leave>", lambda e: self.btn_resume.configure(bg="#065F46"))
 
-        # 2. Card: Today's Intake & 7-Day History
-        card_stats = tk.Frame(self.root, bg=WHITE, padx=15, pady=8, relief="groove", bd=1)
-        card_stats.pack(fill="x", padx=25, pady=(0, 8))
+        # 2. Hero Card: Today's Intake & Weekly Analytics
+        card_stats = tk.Frame(self.root, bg=SURFACE_COLOR, padx=16, pady=12, highlightthickness=1, highlightbackground=SURFACE_BORDER)
+        card_stats.pack(fill="x", padx=22, pady=(0, 10))
 
-        # Title & Quick Log Button inside card
-        stats_top = tk.Frame(card_stats, bg=WHITE)
+        stats_top = tk.Frame(card_stats, bg=SURFACE_COLOR)
         stats_top.pack(fill="x")
+
         tk.Label(
-            stats_top, text="Today's Water Intake",
-            font=("Segoe UI", 11, "bold"), fg=BLUE_DARK, bg=WHITE
+            stats_top, text="TODAY'S HYDRATION",
+            font=("Segoe UI", 8, "bold"), fg=TEXT_DIM, bg=SURFACE_COLOR
         ).pack(side="left")
 
         btn_quick_add = tk.Button(
-            stats_top, text="+1 Glass (Ctrl+Alt+W)",
-            font=("Segoe UI", 8, "bold"), bg="#E1F5FE", fg=BLUE_DARK,
-            activebackground="#B3E5FC", relief="groove", bd=1, padx=6, pady=1, cursor="hand2",
+            stats_top, text="+1 Glass 💧",
+            font=("Segoe UI", 8, "bold"), bg="#0C4A6E", fg="#38BDF8",
+            activebackground=CYAN_HOVER, activeforeground=TEXT_WHITE,
+            relief="flat", bd=0, padx=8, pady=2, cursor="hand2",
             command=self.quick_log_glass
         )
+        btn_quick_add.bind("<Enter>", lambda e: btn_quick_add.configure(bg=CYAN_ACCENT, fg=TEXT_WHITE))
+        btn_quick_add.bind("<Leave>", lambda e: btn_quick_add.configure(bg="#0C4A6E", fg="#38BDF8"))
         btn_quick_add.pack(side="right")
 
-        self.lbl_progress = tk.Label(
-            card_stats, text=self._get_progress_str(),
-            font=("Segoe UI", 10), fg=TEXT_COLOR, bg=WHITE
-        )
-        self.lbl_progress.pack(anchor="w", pady=(2, 4))
+        # Hero Litres & Progress Text
+        hero_frame = tk.Frame(card_stats, bg=SURFACE_COLOR)
+        hero_frame.pack(fill="x", pady=(4, 6))
 
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("Water.Horizontal.TProgressbar", troughcolor="#E0F7FA", background=BLUE_MID, thickness=13)
-        self.pbar = ttk.Progressbar(
-            card_stats, style="Water.Horizontal.TProgressbar", length=380, mode="determinate"
+        self.lbl_hero_litres = tk.Label(
+            hero_frame, text=f"{self.data.litres_drunk:.2f} L",
+            font=("Segoe UI", 26, "bold"), fg=TEXT_WHITE, bg=SURFACE_COLOR
         )
-        self.pbar["value"] = self.data.percentage
-        self.pbar.pack(fill="x", pady=(0, 6))
+        self.lbl_hero_litres.pack(side="left")
 
-        # 7-Day Mini Chart
+        self.lbl_hero_sub = tk.Label(
+            hero_frame, text=f"•  {self.data.count} of {self.data.goal} glasses ({self.data.percentage}%)",
+            font=("Segoe UI", 10), fg=TEXT_MUTED, bg=SURFACE_COLOR
+        )
+        self.lbl_hero_sub.pack(side="left", padx=10, pady=(6, 0))
+
+        # Custom Rounded Capsule Progress Bar
+        self.canvas_pbar = tk.Canvas(card_stats, width=410, height=10, bg=SURFACE_COLOR, highlightthickness=0)
+        self.canvas_pbar.pack(fill="x", pady=(2, 10))
+        self._render_capsule_progressbar()
+
+        # Weekly Activity Section
         tk.Label(
-            card_stats, text="Last 7 Days History:",
-            font=("Segoe UI", 8, "bold"), fg="#546E7A", bg=WHITE
-        ).pack(anchor="w")
+            card_stats, text="WEEKLY ACTIVITY",
+            font=("Segoe UI", 8, "bold"), fg=TEXT_DIM, bg=SURFACE_COLOR
+        ).pack(anchor="w", pady=(2, 4))
 
-        self.canvas_chart = tk.Canvas(card_stats, width=380, height=62, bg="#FAFAFA", highlightthickness=1, highlightbackground="#CFD8DC")
-        self.canvas_chart.pack(fill="x", pady=(2, 2))
+        self.canvas_chart = tk.Canvas(card_stats, width=410, height=68, bg=SURFACE_COLOR, highlightthickness=0)
+        self.canvas_chart.pack(fill="x")
         self._render_weekly_chart()
 
-        # 3. Card: Settings
-        settings_card = tk.Frame(self.root, bg=WHITE, padx=15, pady=8, relief="groove", bd=1)
-        settings_card.pack(fill="x", padx=25, pady=(0, 8))
+        # 3. Settings & Schedule Card
+        settings_card = tk.Frame(self.root, bg=SURFACE_COLOR, padx=16, pady=12, highlightthickness=1, highlightbackground=SURFACE_BORDER)
+        settings_card.pack(fill="x", padx=22, pady=(0, 10))
+
+        tk.Label(
+            settings_card, text="PREFERENCES & SCHEDULE",
+            font=("Segoe UI", 8, "bold"), fg=TEXT_DIM, bg=SURFACE_COLOR
+        ).pack(anchor="w", pady=(0, 6))
 
         # Name row
-        row_name = tk.Frame(settings_card, bg=WHITE)
-        row_name.pack(fill="x", pady=2)
-        tk.Label(row_name, text="Your Name:", font=("Segoe UI", 9, "bold"), fg=TEXT_COLOR, bg=WHITE, width=15, anchor="w").pack(side="left")
-        self.entry_name = tk.Entry(row_name, font=("Segoe UI", 9), width=18)
+        row_name = tk.Frame(settings_card, bg=SURFACE_COLOR)
+        row_name.pack(fill="x", pady=3)
+        tk.Label(row_name, text="Your Name", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=SURFACE_COLOR, width=15, anchor="w").pack(side="left")
+        self.entry_name = tk.Entry(
+            row_name, font=("Segoe UI", 9), bg=SURFACE_MUTED, fg=TEXT_WHITE,
+            insertbackground=CYAN_ACCENT, relief="flat", bd=0, highlightthickness=1,
+            highlightbackground="#334155", highlightcolor=CYAN_ACCENT, width=18
+        )
         self.entry_name.insert(0, self.data.user_name)
         self.entry_name.pack(side="left", padx=4)
         self.entry_name.bind("<FocusOut>", self.on_name_changed)
         self.entry_name.bind("<Return>", self.on_name_changed)
 
         # Interval row
-        row_interval = tk.Frame(settings_card, bg=WHITE)
-        row_interval.pack(fill="x", pady=2)
-        tk.Label(row_interval, text="Remind every:", font=("Segoe UI", 9, "bold"), fg=TEXT_COLOR, bg=WHITE, width=15, anchor="w").pack(side="left")
+        row_interval = tk.Frame(settings_card, bg=SURFACE_COLOR)
+        row_interval.pack(fill="x", pady=3)
+        tk.Label(row_interval, text="Remind Every", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=SURFACE_COLOR, width=15, anchor="w").pack(side="left")
 
         self.interval_options = {
             "1 min (Test)": 1,
@@ -794,8 +850,8 @@ class WatertimeApp:
             "60 mins": 60,
         }
         self.combo_interval = ttk.Combobox(
-            row_interval, values=list(self.interval_options.keys()),
-            width=15, state="readonly", font=("Segoe UI", 9)
+            row_interval, style="Dark.TCombobox", values=list(self.interval_options.keys()),
+            width=16, state="readonly", font=("Segoe UI", 9)
         )
         current_mins = self.data.interval_minutes
         found_key = next((k for k, v in self.interval_options.items() if v == current_mins), f"{current_mins} mins")
@@ -803,10 +859,10 @@ class WatertimeApp:
         self.combo_interval.bind("<<ComboboxSelected>>", self.on_interval_selected)
         self.combo_interval.pack(side="left", padx=4)
 
-        # Daily Goal row
-        row_goal = tk.Frame(settings_card, bg=WHITE)
-        row_goal.pack(fill="x", pady=2)
-        tk.Label(row_goal, text="Daily Goal:", font=("Segoe UI", 9, "bold"), fg=TEXT_COLOR, bg=WHITE, width=15, anchor="w").pack(side="left")
+        # Goal row
+        row_goal = tk.Frame(settings_card, bg=SURFACE_COLOR)
+        row_goal.pack(fill="x", pady=3)
+        tk.Label(row_goal, text="Daily Target", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=SURFACE_COLOR, width=15, anchor="w").pack(side="left")
 
         self.goal_options = {
             "6 glasses (1.5 L)": 6,
@@ -816,8 +872,8 @@ class WatertimeApp:
             "14 glasses (3.5 L)": 14,
         }
         self.combo_goal = ttk.Combobox(
-            row_goal, values=list(self.goal_options.keys()),
-            width=15, state="readonly", font=("Segoe UI", 9)
+            row_goal, style="Dark.TCombobox", values=list(self.goal_options.keys()),
+            width=16, state="readonly", font=("Segoe UI", 9)
         )
         curr_goal = self.data.goal
         found_goal_key = next((k for k, v in self.goal_options.items() if v == curr_goal), f"{curr_goal} glasses")
@@ -826,26 +882,26 @@ class WatertimeApp:
         self.combo_goal.pack(side="left", padx=4)
 
         # Active Hours row
-        row_hours = tk.Frame(settings_card, bg=WHITE)
-        row_hours.pack(fill="x", pady=2)
+        row_hours = tk.Frame(settings_card, bg=SURFACE_COLOR)
+        row_hours.pack(fill="x", pady=3)
         self.var_work_hours = tk.BooleanVar(value=self.data.work_hours_enabled)
         chk_hours = tk.Checkbutton(
             row_hours, text="Active Hours:", variable=self.var_work_hours,
-            font=("Segoe UI", 9, "bold"), bg=WHITE, fg=TEXT_COLOR,
-            activebackground=WHITE, selectcolor=WHITE,
+            font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR, fg=TEXT_WHITE,
+            activebackground=SURFACE_COLOR, selectcolor=SURFACE_MUTED,
             command=self.on_work_hours_toggled
         )
         chk_hours.pack(side="left")
 
         hour_vals = [f"{h:02d}:00" for h in range(24)]
-        self.combo_h_start = ttk.Combobox(row_hours, values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_start = ttk.Combobox(row_hours, style="Dark.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
         self.combo_h_start.set(f"{self.data.work_start_hour:02d}:00")
         self.combo_h_start.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
         self.combo_h_start.pack(side="left", padx=3)
 
-        tk.Label(row_hours, text="to", font=("Segoe UI", 8), bg=WHITE, fg="#546E7A").pack(side="left")
+        tk.Label(row_hours, text="to", font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_DIM).pack(side="left")
 
-        self.combo_h_end = ttk.Combobox(row_hours, values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_end = ttk.Combobox(row_hours, style="Dark.TCombobox", values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
         self.combo_h_end.set(f"{self.data.work_end_hour:02d}:00")
         self.combo_h_end.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
         self.combo_h_end.pack(side="left", padx=3)
@@ -853,51 +909,77 @@ class WatertimeApp:
         # Auto-start row
         self.var_autostart = tk.BooleanVar(value=is_autostart_enabled())
         self.chk_autostart = tk.Checkbutton(
-            settings_card, text="Start automatically on PC boot",
+            settings_card, text="Launch automatically on PC boot",
             variable=self.var_autostart, onvalue=True, offvalue=False,
-            font=("Segoe UI", 9), bg=WHITE, fg=TEXT_COLOR,
-            activebackground=WHITE, selectcolor=WHITE,
+            font=("Segoe UI", 9), bg=SURFACE_COLOR, fg=TEXT_MUTED,
+            activebackground=SURFACE_COLOR, selectcolor=SURFACE_MUTED,
             command=self.toggle_autostart
         )
-        self.chk_autostart.pack(anchor="w", pady=(2, 0))
+        self.chk_autostart.pack(anchor="w", pady=(3, 0))
 
-        # Shortcut tip banner
+        # 4. Shortcut Hint & Bottom Actions
         lbl_hint = tk.Label(
-            self.root, text="💡 Tip: Press Ctrl + Alt + W anywhere to quickly log a glass!",
-            font=("Segoe UI", 8, "italic"), fg="#546E7A", bg=BG_COLOR
+            self.root, text="⌨️ Shortcut: Press Ctrl + Alt + W anywhere to log a glass instantly",
+            font=("Segoe UI", 8), fg=TEXT_DIM, bg=BG_COLOR
         )
-        lbl_hint.pack(pady=(0, 4))
+        lbl_hint.pack(pady=(0, 6))
 
-        # 4. Bottom Actions
         actions_frame = tk.Frame(self.root, bg=BG_COLOR)
-        actions_frame.pack(pady=(0, 6))
+        actions_frame.pack(pady=(0, 10))
 
         btn_test = tk.Button(
-            actions_frame, text="🚶 Test Mascot Now!",
-            font=("Segoe UI", 10, "bold"), bg="#FF9800", fg=WHITE,
-            activebackground="#F57C00", activeforeground=WHITE,
-            relief="flat", bd=0, padx=14, pady=5, cursor="hand2",
+            actions_frame, text="🚶 Test Mascot Character",
+            font=("Segoe UI", 10, "bold"), bg=AMBER_ACCENT, fg="#FFFFFF",
+            activebackground=AMBER_HOVER, activeforeground="#FFFFFF",
+            relief="flat", bd=0, padx=16, pady=7, cursor="hand2",
             command=self.test_mascot_now
         )
+        btn_test.bind("<Enter>", lambda e: btn_test.configure(bg=AMBER_HOVER))
+        btn_test.bind("<Leave>", lambda e: btn_test.configure(bg=AMBER_ACCENT))
         btn_test.pack(side="left", padx=6)
 
         btn_min = tk.Button(
             actions_frame, text="Minimize to Tray",
-            font=("Segoe UI", 10), bg=BTN_SKIP, fg=WHITE,
-            activebackground="#546E7A", activeforeground=WHITE,
-            relief="flat", bd=0, padx=12, pady=5, cursor="hand2",
+            font=("Segoe UI", 10), bg=SURFACE_MUTED, fg="#E2E8F0",
+            activebackground="#334155", activeforeground="#FFFFFF",
+            relief="flat", bd=0, padx=14, pady=7, cursor="hand2",
             command=self.hide_dashboard
         )
+        btn_min.bind("<Enter>", lambda e: btn_min.configure(bg="#334155"))
+        btn_min.bind("<Leave>", lambda e: btn_min.configure(bg=SURFACE_MUTED))
         btn_min.pack(side="left", padx=6)
 
+    def _render_capsule_progressbar(self):
+        """Render modern sleek capsule progress bar with rounded ends."""
+        self.canvas_pbar.delete("all")
+        w = 410
+        h = 10
+        r = h // 2
+        pct = max(0, min(100, self.data.percentage))
+
+        # Background track
+        self.canvas_pbar.create_polygon([
+            r, 0, w - r, 0, w, 0, w, r, w, h - r, w, h,
+            w - r, h, r, h, 0, h, 0, h - r, 0, r, 0, 0
+        ], smooth=True, fill=SURFACE_MUTED, outline="")
+
+        if pct > 0:
+            fill_w = max(h, int((pct / 100.0) * w))
+            bar_color = EMERALD_GREEN if pct >= 100 else CYAN_ACCENT
+            self.canvas_pbar.create_polygon([
+                r, 0, fill_w - r, 0, fill_w, 0, fill_w, r, fill_w, h - r, fill_w, h,
+                fill_w - r, h, r, h, 0, h, 0, h - r, 0, r, 0, 0
+            ], smooth=True, fill=bar_color, outline="")
+
     def _render_weekly_chart(self):
+        """Draw 7-day capsule visual bar chart in sleek dark mode."""
         self.canvas_chart.delete("all")
         days = self.data.get_last_7_days()
-        w = 380
+        w = 410
         col_w = w / 7
-        bar_w = 22
-        base_y = 45
-        max_bar_h = 26
+        bar_w = 20
+        base_y = 46
+        max_bar_h = 28
         goal = self.data.goal
 
         for idx, (d, d_str, cnt, is_today) in enumerate(days):
@@ -911,32 +993,36 @@ class WatertimeApp:
             by2 = base_y
 
             if cnt >= goal:
-                fill_col = "#4CAF50"
+                fill_col = EMERALD_GREEN
             elif cnt > 0:
-                fill_col = BLUE_MID
+                fill_col = CYAN_ACCENT
             else:
-                fill_col = "#CFD8DC"
+                fill_col = SURFACE_MUTED
 
-            outline_col = "#FF9800" if is_today else fill_col
-            border_w = 2 if is_today else 1
+            # Background slot capsule
+            self.canvas_chart.create_rectangle(bx1, base_y - max_bar_h, bx2, base_y, fill=SURFACE_MUTED, outline="", width=0)
+            # Active bar
+            self.canvas_chart.create_rectangle(bx1, by1, bx2, by2, fill=fill_col, outline="", width=0)
 
-            self.canvas_chart.create_rectangle(bx1, base_y - max_bar_h, bx2, base_y, fill="#ECEFF1", outline="", width=0)
-            self.canvas_chart.create_rectangle(bx1, by1, bx2, by2, fill=fill_col, outline=outline_col, width=border_w)
-
+            # Count text
+            cnt_color = TEXT_WHITE if is_today or cnt > 0 else TEXT_DIM
             self.canvas_chart.create_text(
-                cx, by1 - 5, text=str(cnt),
-                font=("Segoe UI", 8, "bold" if is_today else "normal"), fill="#37474F"
+                cx, by1 - 6, text=str(cnt),
+                font=("Segoe UI", 8, "bold" if is_today else "normal"), fill=cnt_color
             )
+
+            # Day label
             day_name = d.strftime("%a")
+            day_color = "#38BDF8" if is_today else TEXT_MUTED
             self.canvas_chart.create_text(
-                cx, base_y + 9, text=day_name,
+                cx, base_y + 10, text=day_name,
                 font=("Segoe UI", 8, "bold" if is_today else "normal"),
-                fill="#01579B" if is_today else "#78909C"
+                fill=day_color
             )
 
-    def _get_progress_str(self):
-        return (f"{self.data.count} of {self.data.goal} glasses "
-                f"({self.data.litres_drunk:.2f}L / {self.data.litres_goal:.1f}L) • {self.data.percentage}%")
+            # Today indicator dot
+            if is_today:
+                self.canvas_chart.create_oval(cx - 2, base_y + 17, cx + 2, base_y + 21, fill="#38BDF8", outline="")
 
     def _center_window(self, w, h):
         sw = self.root.winfo_screenwidth()
@@ -991,7 +1077,6 @@ class WatertimeApp:
 
     # ── Quick Log (Hotkey or Tray or Dashboard) ──
     def quick_log_glass(self, icon=None, item=None):
-        """Immediately log 1 glass from anywhere."""
         self.data.add_glass()
         self._refresh_ui_progress()
         toast_msg = f"💧 +1 Glass Logged! ({self.data.count}/{self.data.goal} glasses • {self.data.litres_drunk:.2f}L)"
@@ -1003,21 +1088,20 @@ class WatertimeApp:
                 pass
 
     def show_quick_toast(self, text: str):
-        """Show a temporary floating notification pill in the bottom right corner."""
         try:
             toast = tk.Toplevel(self.root)
             toast.overrideredirect(True)
             toast.wm_attributes("-topmost", True)
             try:
-                toast.wm_attributes("-alpha", 0.94)
+                toast.wm_attributes("-alpha", 0.95)
             except Exception:
                 pass
-            toast.configure(bg="#01579B")
+            toast.configure(bg="#0F172A")
 
             lbl = tk.Label(
                 toast, text=text,
-                font=("Segoe UI", 10, "bold"), fg="#FFFFFF", bg="#01579B",
-                padx=16, pady=8
+                font=("Segoe UI", 10, "bold"), fg=TEXT_WHITE, bg="#0F172A",
+                padx=16, pady=8, highlightthickness=1, highlightbackground=CYAN_ACCENT
             )
             lbl.pack()
 
@@ -1072,10 +1156,10 @@ class WatertimeApp:
         if self.dnd_until > now:
             mins_left = max(1, int((self.dnd_until - now) / 60))
             until_str = time.strftime("%H:%M", time.localtime(self.dnd_until))
-            self.lbl_status.config(text=f"⏸️ Snoozed ({mins_left}m left, until {until_str})", fg="#E65100")
+            self.lbl_status.config(text=f"⏸️ Snoozed ({mins_left}m left, until {until_str})", fg=AMBER_ACCENT)
             self.btn_resume.pack(side="left", padx=2)
             if self.tray:
-                self.tray.title = f"Watertime 💧 [Snoozed until {until_str}] • {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L)"
+                self.tray.title = f"Pivora 💧 [Snoozed until {until_str}] • {self.data.count}/{self.data.goal} ({self.data.litres_drunk:.2f}L)"
             return
         else:
             self.btn_resume.pack_forget()
@@ -1085,25 +1169,26 @@ class WatertimeApp:
             s_h = self.data.work_start_hour
             e_h = self.data.work_end_hour
             if not (s_h <= curr_hour < e_h):
-                self.lbl_status.config(text=f"🌙 Outside Active Hours (Resumes at {s_h:02d}:00)", fg="#546E7A")
+                self.lbl_status.config(text=f"🌙 Outside Active Hours (Resumes at {s_h:02d}:00)", fg=TEXT_DIM)
                 if self.tray:
-                    self.tray.title = f"Watertime 💧 [Quiet Hours until {s_h:02d}:00] • {self.data.count}/{self.data.goal}"
+                    self.tray.title = f"Pivora 💧 [Quiet Hours until {s_h:02d}:00] • {self.data.count}/{self.data.goal}"
                 return
 
         # Normal Active
         secs_left = max(0, int(self.next_reminder_time - now))
         mins_left = secs_left // 60
-        self.lbl_status.config(text=f"🟢 Active (Next reminder in {mins_left}m)", fg="#2E7D32")
+        self.lbl_status.config(text=f"🟢 Active (Next reminder in {mins_left}m)", fg="#34D399")
         if self.tray:
-            self.tray.title = f"Watertime 💧 — {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L) • Next in {mins_left}m"
+            self.tray.title = f"Pivora 💧 — {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L) • Next in {mins_left}m"
 
     def _refresh_ui_progress(self):
-        self.lbl_progress.config(text=self._get_progress_str())
-        self.pbar["value"] = self.data.percentage
+        self.lbl_hero_litres.config(text=f"{self.data.litres_drunk:.2f} L")
+        self.lbl_hero_sub.config(text=f"•  {self.data.count} of {self.data.goal} glasses ({self.data.percentage}%)")
+        self._render_capsule_progressbar()
         self.lbl_streak.config(text=f"🔥 {self.data.streak} Day Streak")
         self._render_weekly_chart()
         self._update_status_label()
-        # Dynamically refresh tray icon badge with current count
+
         if self.tray:
             try:
                 self.tray.icon = create_tray_icon_image(self.data.count, self.data.goal, 64)
@@ -1144,7 +1229,6 @@ class WatertimeApp:
         self._update_status_label()
 
     def _start_ipc_listener(self):
-        """Listen for wakeup signals from duplicate launches to bring dashboard to front."""
         global _instance_socket
         if not _instance_socket:
             return
@@ -1196,7 +1280,7 @@ class WatertimeApp:
             )
 
             menu = pystray.Menu(
-                pystray.MenuItem("💧 Watertime Active", None, enabled=False),
+                pystray.MenuItem("💧 Pivora Active", None, enabled=False),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("➕ Quick Log 1 Glass (Ctrl+Alt+W)", lambda icon, item: self.quick_log_glass()),
                 pystray.MenuItem("🚶 Show Mascot Now", lambda icon, item: self.root.after(0, self.test_mascot_now)),
@@ -1205,12 +1289,12 @@ class WatertimeApp:
                 pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.show_dashboard()),
                 pystray.MenuItem("🔄 Reset Today's Count", lambda icon, item: self.reset_count()),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem("❌ Quit Watertime", lambda icon, item: self.quit_app())
+                pystray.MenuItem("❌ Quit Pivora", lambda icon, item: self.quit_app())
             )
-            self.tray = pystray.Icon("Watertime", icon_img, "Watertime 💧", menu)
+            self.tray = pystray.Icon("Pivora", icon_img, "Pivora 💧", menu)
             threading.Thread(target=self.tray.run, daemon=True).start()
         except Exception as e:
-            print(f"[Watertime] System tray error: {e}")
+            print(f"[Pivora] System tray error: {e}")
             self.tray = None
 
     def reset_count(self, icon=None, item=None):
