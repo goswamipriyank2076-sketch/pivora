@@ -830,7 +830,7 @@ class WatertimeApp:
 
         self._init_theme()
         self._build_dashboard()
-        self._center_window(490, 620)
+        self._center_window(490, 540)
 
         # Mascot Overlay (Screen Walker)
         self.mascot = MascotOverlay(self.root, self.data, on_close=self.on_mascot_closed)
@@ -926,7 +926,7 @@ class WatertimeApp:
 
         # 3. Main Content Container
         self.container = tk.Frame(self.root, bg=BG_MAIN)
-        self.container.pack(fill="both", expand=True, padx=20)
+        self.container.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
         # ── TAB 1: Today's Tracker ──
         self.tab_tracker = tk.Frame(self.container, bg=BG_MAIN)
