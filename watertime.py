@@ -1,7 +1,7 @@
 """
 Watertime - Walking Mascot Water Reminder
 A transparent 3D character walks directly onto your active screen/application,
-speaks aloud to remind you to drink water, and tracks your daily water intake!
+displays friendly speech bubbles to remind you to drink water, and tracks daily intake & streaks!
 """
 
 import json
@@ -9,11 +9,12 @@ import math
 import os
 import sys
 import time
+import random
 import threading
 import subprocess
 import tkinter as tk
 from tkinter import ttk
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 try:
@@ -37,6 +38,8 @@ DATA_FILE                = Path.home() / ".watertime_data.json"
 DEFAULT_NAME             = "Priyank"
 DEFAULT_INTERVAL_MINUTES = 5
 DEFAULT_GOAL             = 8
+DEFAULT_WORK_START       = 9
+DEFAULT_WORK_END         = 21
 TRANS_COLOR              = "#010101"
 
 BG_COLOR    = "#E1F5FE"
@@ -46,6 +49,15 @@ WHITE       = "#FFFFFF"
 TEXT_COLOR  = "#01579B"
 BTN_DRINK   = "#0288D1"
 BTN_SKIP    = "#78909C"
+
+MASCOT_QUOTES = [
+    "Hey {name}!\nTime for a refreshing sip! 💧",
+    "Water break, {name}!\nYour brain needs hydration! 🧠✨",
+    "Gulp gulp!\nA cool glass gives you energy! ⚡",
+    "Hydration check!\nTake a pause and drink water! 🧊",
+    "Stay fresh, {name}!\nDrink a glass to hit your goal! 🎯",
+    "Healthy body, sharp mind!\nGrab a cold drink! 🌊",
+]
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -66,15 +78,7 @@ def ensure_single_instance(port=47892):
 
 
 # ─────────────────────────────────────────────────────────────────
-# Text to Speech Voice (Disabled as requested)
-# ─────────────────────────────────────────────────────────────────
-def speak(text: str):
-    """Voice disabled as requested by user."""
-    pass
-
-
-# ─────────────────────────────────────────────────────────────────
-# Data Management
+# Data Management with History, Streaks, Goal & Active Hours
 # ─────────────────────────────────────────────────────────────────
 class WaterData:
     def __init__(self):
@@ -87,11 +91,14 @@ class WaterData:
                 raw = json.loads(DATA_FILE.read_text(encoding="utf-8"))
                 if raw.get("date") != today:
                     return self._fresh(today, raw)
-                # Ensure fields exist
                 raw.setdefault("user_name", DEFAULT_NAME)
                 raw.setdefault("interval_minutes", DEFAULT_INTERVAL_MINUTES)
                 raw.setdefault("goal", DEFAULT_GOAL)
                 raw.setdefault("glasses_count", 0)
+                raw.setdefault("work_hours_enabled", True)
+                raw.setdefault("work_start_hour", DEFAULT_WORK_START)
+                raw.setdefault("work_end_hour", DEFAULT_WORK_END)
+                raw.setdefault("history", {})
                 return raw
             except Exception:
                 pass
@@ -101,12 +108,25 @@ class WaterData:
         name = prev.get("user_name", DEFAULT_NAME) if prev else DEFAULT_NAME
         interval = prev.get("interval_minutes", DEFAULT_INTERVAL_MINUTES) if prev else DEFAULT_INTERVAL_MINUTES
         goal = prev.get("goal", DEFAULT_GOAL) if prev else DEFAULT_GOAL
+        work_enabled = prev.get("work_hours_enabled", True) if prev else True
+        work_start = prev.get("work_start_hour", DEFAULT_WORK_START) if prev else DEFAULT_WORK_START
+        work_end = prev.get("work_end_hour", DEFAULT_WORK_END) if prev else DEFAULT_WORK_END
+        history = dict(prev.get("history", {})) if prev else {}
+
+        # Archive previous day count if rolling over
+        if prev and "date" in prev and "glasses_count" in prev:
+            history[prev["date"]] = prev["glasses_count"]
+
         return {
             "date": today,
             "user_name": name,
             "glasses_count": 0,
             "goal": goal,
-            "interval_minutes": interval
+            "interval_minutes": interval,
+            "work_hours_enabled": work_enabled,
+            "work_start_hour": work_start,
+            "work_end_hour": work_end,
+            "history": history
         }
 
     def _save(self):
@@ -118,6 +138,15 @@ class WaterData:
     def add_glass(self):
         self._ensure_today()
         self.data["glasses_count"] += 1
+        today = str(date.today())
+        if "history" not in self.data:
+            self.data["history"] = {}
+        self.data["history"][today] = self.data["glasses_count"]
+        # Limit history to 30 days
+        keys = sorted(self.data["history"].keys())
+        if len(keys) > 30:
+            for old_k in keys[:-30]:
+                del self.data["history"][old_k]
         self._save()
 
     def reset(self):
@@ -155,9 +184,79 @@ class WaterData:
     def goal(self):
         return self.data.get("goal", DEFAULT_GOAL)
 
+    def set_goal(self, goal: int):
+        self.data["goal"] = max(1, int(goal))
+        self._save()
+
+    @property
+    def litres_drunk(self):
+        return self.count * 0.25
+
+    @property
+    def litres_goal(self):
+        return self.goal * 0.25
+
     @property
     def percentage(self):
         return min(100, int((self.count / max(1, self.goal)) * 100))
+
+    @property
+    def work_hours_enabled(self):
+        return self.data.get("work_hours_enabled", True)
+
+    def set_work_hours_enabled(self, val: bool):
+        self.data["work_hours_enabled"] = bool(val)
+        self._save()
+
+    @property
+    def work_start_hour(self):
+        return self.data.get("work_start_hour", DEFAULT_WORK_START)
+
+    def set_work_start_hour(self, h: int):
+        self.data["work_start_hour"] = int(h)
+        self._save()
+
+    @property
+    def work_end_hour(self):
+        return self.data.get("work_end_hour", DEFAULT_WORK_END)
+
+    def set_work_end_hour(self, h: int):
+        self.data["work_end_hour"] = int(h)
+        self._save()
+
+    @property
+    def streak(self):
+        """Calculate current consecutive daily goal achievement streak."""
+        today = str(date.today())
+        today_count = self.count
+        goal = self.goal
+        history = self.data.get("history", {})
+
+        streak_count = 0
+        if today_count >= goal:
+            streak_count += 1
+
+        curr_date = date.today() - timedelta(days=1)
+        while True:
+            d_str = str(curr_date)
+            if history.get(d_str, 0) >= goal:
+                streak_count += 1
+                curr_date -= timedelta(days=1)
+            else:
+                break
+        return streak_count
+
+    def get_last_7_days(self):
+        """Return list of (date_obj, date_str, count, is_today) for last 7 days."""
+        today_date = date.today()
+        history = self.data.get("history", {})
+        result = []
+        for i in range(6, -1, -1):
+            d = today_date - timedelta(days=i)
+            d_str = str(d)
+            cnt = self.count if i == 0 else history.get(d_str, 0)
+            result.append((d, d_str, cnt, i == 0))
+        return result
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -238,7 +337,7 @@ def create_tray_icon_image(size=64):
 
 
 # ─────────────────────────────────────────────────────────────────
-# Transparent Walking Mascot Overlay (Using Animated Boy GIF)
+# Transparent Walking Mascot Overlay with Speech Bubble
 # ─────────────────────────────────────────────────────────────────
 def load_gif_frames(master, target_h=320):
     """Load or extract and prepare all 9 frames from the animated GIF."""
@@ -277,7 +376,7 @@ def load_gif_frames(master, target_h=320):
 
 
 class MascotOverlay:
-    """Borderless, transparent window where the 3D animated boy walks from Right to Left into the screen center."""
+    """Borderless, transparent window where 3D character walks in, speaks via bubble, and prompts hydration."""
 
     WALK_FRAMES = [0, 1, 8, 1]                    # Pure footstep walking cycle holding bottle
     DRINK_FRAMES = [2, 3, 4, 5, 6, 5, 6, 7, 8]    # Raises bottle, drinks refreshing sips, smiles
@@ -298,11 +397,11 @@ class MascotOverlay:
         self.win.configure(bg=TRANS_COLOR)
 
         self.w = 340
-        self.h = 440
+        self.h = 450
         self.sw = self.win.winfo_screenwidth()
         self.sh = self.win.winfo_screenheight()
 
-        # Target center of screen!
+        # Center target
         self.target_x = (self.sw - self.w) // 2
         self.target_y = (self.sh - self.h) // 2
         self.curr_x = self.sw
@@ -316,49 +415,46 @@ class MascotOverlay:
         )
         self.canvas.pack(fill="both", expand=True)
 
-        # Load all 9 frames from the animated boy GIF
+        # Load frames
         self.frames = load_gif_frames(self.win, target_h=320)
-        self.canvas.frames_ref = self.frames  # Keep reference so Tkinter doesn't garbage collect
+        self.canvas.frames_ref = self.frames
         self.cur_frame = 0
 
         initial_img = self.frames[0] if self.frames else None
-        self.char_id = self.canvas.create_image(self.w // 2, 265, image=initial_img)
+        # Mascot character placed at y=285
+        self.char_id = self.canvas.create_image(self.w // 2, 285, image=initial_img)
 
-        # Speech Text (Shadow + Yellow)
-        self.text_shadow = self.canvas.create_text(
-            self.w // 2 + 2, 36,
-            text="", font=("Segoe UI Black", 15, "bold"),
-            fill="#B71C1C", justify="center"
-        )
-        self.text_main = self.canvas.create_text(
-            self.w // 2, 34,
-            text="", font=("Segoe UI Black", 15, "bold"),
-            fill="#FFD600", justify="center"
+        # Cartoon Speech Bubble above character
+        self.bubble_items = self._create_speech_bubble()
+        self.bubble_text = self.canvas.create_text(
+            self.w // 2, 45,
+            text="", font=("Segoe UI", 11, "bold"),
+            fill=BLUE_DARK, justify="center"
         )
 
-        # Floating Buttons
+        # Action Buttons
         self.btn_frame_w = tk.Frame(self.win, bg=TRANS_COLOR)
         self.btn_yes = tk.Button(
-            self.btn_frame_w, text="  YES  ",
-            font=("Segoe UI", 11, "bold"),
-            bg="#FFFFFF", fg="#212121",
-            activebackground="#EEEEEE", activeforeground="#000000",
+            self.btn_frame_w, text="  💧 Drink (YES)  ",
+            font=("Segoe UI", 10, "bold"),
+            bg="#0288D1", fg="#FFFFFF",
+            activebackground="#0277BD", activeforeground="#FFFFFF",
             relief="raised", bd=2, cursor="hand2",
-            padx=14, pady=5, command=self.on_yes
+            padx=10, pady=4, command=self.on_yes
         )
-        self.btn_yes.pack(side="left", padx=8)
+        self.btn_yes.pack(side="left", padx=6)
 
         self.btn_later = tk.Button(
-            self.btn_frame_w, text="Remind me later",
-            font=("Segoe UI", 10),
-            bg="#FAFAFA", fg="#424242",
-            activebackground="#EEEEEE", activeforeground="#000000",
+            self.btn_frame_w, text="Remind later",
+            font=("Segoe UI", 9),
+            bg="#ECEFF1", fg="#455A64",
+            activebackground="#CFD8DC", activeforeground="#263238",
             relief="raised", bd=2, cursor="hand2",
-            padx=10, pady=5, command=self.on_later
+            padx=8, pady=4, command=self.on_later
         )
         self.btn_later.pack(side="left", padx=4)
 
-        self.btn_window = self.canvas.create_window(self.w // 2, 85, window=self.btn_frame_w)
+        self.btn_window = self.canvas.create_window(self.w // 2, 115, window=self.btn_frame_w)
 
         self.dismiss_job = None
         self.anim_job = None
@@ -366,41 +462,60 @@ class MascotOverlay:
         self.step_idx = 0
         self.total_ticks = 0
 
+    def _create_speech_bubble(self):
+        """Draw a sleek rounded speech bubble with a bottom pointer tail."""
+        x1, y1 = 20, 10
+        x2, y2 = self.w - 20, 80
+        r = 14
+        cx = self.w // 2
+
+        # Pointer tail pointing down towards boy's head
+        tail = self.canvas.create_polygon([
+            cx - 9, y2 - 2,
+            cx + 9, y2 - 2,
+            cx, y2 + 13
+        ], fill="#FFFFFF", outline=BLUE_MID, width=2)
+
+        # Rounded bubble
+        pts = [
+            x1 + r, y1,      x2 - r, y1,      x2, y1,
+            x2, y1 + r,      x2, y2 - r,      x2, y2,
+            x2 - r, y2,      x1 + r, y2,      x1, y2,
+            x1, y2 - r,      x1, y1 + r,      x1, y1
+        ]
+        bubble = self.canvas.create_polygon(pts, smooth=True, fill="#FFFFFF", outline=BLUE_MID, width=2)
+        # Seam patch so tail seamlessly joins inside of bubble
+        seam = self.canvas.create_rectangle(cx - 7, y2 - 3, cx + 7, y2 + 1, fill="#FFFFFF", outline="#FFFFFF")
+        return [tail, bubble, seam]
+
     def trigger(self):
-        """Start the walking animation into the screen from the Right."""
+        """Start walk-in from the Right side of screen."""
         if self.is_active:
             return
         self.is_active = True
         self.step_idx = 0
         self.total_ticks = 0
 
-        name = self.data.user_name
-        text_str = f"Hey, {name}!\nDid you drink water?"
-        self.canvas.itemconfig(self.text_shadow, text=text_str)
-        self.canvas.itemconfig(self.text_main, text=text_str)
-
-        # Hide text & buttons during walk-in
-        self.canvas.itemconfigure(self.text_shadow, state="hidden")
-        self.canvas.itemconfigure(self.text_main, state="hidden")
+        # Hide bubble & buttons during walk-in
+        for item in self.bubble_items:
+            self.canvas.itemconfigure(item, state="hidden")
+        self.canvas.itemconfigure(self.bubble_text, state="hidden")
         self.canvas.itemconfigure(self.btn_window, state="hidden")
 
         if self.frames and self.char_id:
             self.canvas.itemconfig(self.char_id, image=self.frames[0])
-            self.canvas.coords(self.char_id, self.w // 2, 265)
+            self.canvas.coords(self.char_id, self.w // 2, 285)
 
-        # Start from the RIGHT edge of the screen
         self.curr_x = self.sw
         self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
         self.win.deiconify()
         self.win.lift()
         self.win.wm_attributes("-topmost", True)
 
-        # Start walking cycle & moving Right to Left
         self._cycle_walk()
         self._walk_in_step()
 
     def _cycle_walk(self):
-        """Cycle pure walking frames [0, 1, 8, 1] with realistic human footstep cadence."""
         if not self.is_active or not self.frames:
             return
         f_idx = self.WALK_FRAMES[self.step_idx % len(self.WALK_FRAMES)]
@@ -410,35 +525,30 @@ class MascotOverlay:
         self.anim_job = self.win.after(150, self._cycle_walk)
 
     def _walk_in_step(self):
-        """Move from Right to Left toward screen center with footstep bobbing."""
         if not self.is_active:
             return
         speed = 7
         if self.curr_x > self.target_x:
             self.curr_x = max(self.target_x, self.curr_x - speed)
             self.total_ticks += 1
-            # Human vertical bobbing synced with steps (4px bounce)
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
             if self.char_id:
-                self.canvas.coords(self.char_id, self.w // 2, 265 + bob)
+                self.canvas.coords(self.char_id, self.w // 2, 285 + bob)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
             self.move_job = self.win.after(22, self._walk_in_step)
         else:
             self.curr_x = self.target_x
             if self.char_id:
-                self.canvas.coords(self.char_id, self.w // 2, 265)
+                self.canvas.coords(self.char_id, self.w // 2, 285)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
 
-            # Stop walking motion
             if self.anim_job:
                 self.win.after_cancel(self.anim_job)
                 self.anim_job = None
 
-            # Arrived at center! Play drinking sequence
             self._play_drink_at_center(0)
 
     def _play_drink_at_center(self, drink_idx):
-        """Character pauses at center, raises bottle, drinks water, and smiles."""
         if not self.is_active or not self.frames:
             return
         if drink_idx < len(self.DRINK_FRAMES):
@@ -448,14 +558,18 @@ class MascotOverlay:
             delay = 240 if f_idx in (5, 6) else 150
             self.anim_job = self.win.after(delay, lambda: self._play_drink_at_center(drink_idx + 1))
         else:
-            # Done drinking! Stand smiling and reveal question & buttons
             if self.char_id and len(self.frames) > 0:
                 self.canvas.itemconfig(self.char_id, image=self.frames[0])
-            self.canvas.itemconfigure(self.text_shadow, state="normal")
-            self.canvas.itemconfigure(self.text_main, state="normal")
+
+            # Reveal cartoon speech bubble with friendly quote
+            quote = random.choice(MASCOT_QUOTES).format(name=self.data.user_name)
+            self.canvas.itemconfig(self.bubble_text, text=quote)
+
+            for item in self.bubble_items:
+                self.canvas.itemconfigure(item, state="normal")
+            self.canvas.itemconfigure(self.bubble_text, state="normal")
             self.canvas.itemconfigure(self.btn_window, state="normal")
 
-            # Auto-dismiss after 20 seconds
             self.dismiss_job = self.win.after(20000, self.on_later)
 
     def on_yes(self):
@@ -463,10 +577,11 @@ class MascotOverlay:
             self.win.after_cancel(self.dismiss_job)
             self.dismiss_job = None
         self.data.add_glass()
-        # Show positive feedback
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        self.canvas.itemconfig(self.text_shadow, text="Awesome!\nStay hydrated! 💧")
-        self.canvas.itemconfig(self.text_main, text="Awesome!\nStay hydrated! 💧")
+        self.canvas.itemconfig(
+            self.bubble_text,
+            text=f"Awesome, {self.data.user_name}!\nStay healthy & hydrated! 💧✨"
+        )
         self.win.after(1100, self._walk_out)
 
     def on_later(self):
@@ -474,16 +589,18 @@ class MascotOverlay:
             self.win.after_cancel(self.dismiss_job)
             self.dismiss_job = None
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        self.canvas.itemconfig(self.text_shadow, text="Okay!\nDrink soon! 👍")
-        self.canvas.itemconfig(self.text_main, text="Okay!\nDrink soon! 👍")
+        self.canvas.itemconfig(
+            self.bubble_text,
+            text=f"No worries, {self.data.user_name}!\nI will remind you soon! 👍"
+        )
         self.win.after(1000, self._walk_out)
 
     def _walk_out(self):
-        # Hide question
-        self.canvas.itemconfigure(self.text_shadow, state="hidden")
-        self.canvas.itemconfigure(self.text_main, state="hidden")
+        for item in self.bubble_items:
+            self.canvas.itemconfigure(item, state="hidden")
+        self.canvas.itemconfigure(self.bubble_text, state="hidden")
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        # Resume pure walking cycle and walk out towards the LEFT
+
         self.step_idx = 0
         self.total_ticks = 0
         self._cycle_walk()
@@ -498,11 +615,10 @@ class MascotOverlay:
             self.total_ticks += 1
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
             if self.char_id:
-                self.canvas.coords(self.char_id, self.w // 2, 265 + bob)
+                self.canvas.coords(self.char_id, self.w // 2, 285 + bob)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
             self.move_job = self.win.after(22, self._walk_out_step)
         else:
-            # Fully off-screen on the left
             if self.anim_job:
                 self.win.after_cancel(self.anim_job)
                 self.anim_job = None
@@ -518,75 +634,119 @@ class MascotOverlay:
 class WatertimeApp:
     def __init__(self):
         self.data = WaterData()
+        self.dnd_until = 0  # Timestamp until which reminders are paused (0 = active)
         self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
 
-        # Root Window (Dashboard)
+        # Root Window
         self.root = tk.Tk()
         self.root.title("Watertime 💧 - Dashboard & Settings")
         self.root.resizable(False, False)
         self.root.configure(bg=BG_COLOR)
-        # Clicking [X] now completely QUITS the app cleanly
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
         self._build_dashboard()
-        self._center_window(440, 520)
+        self._center_window(460, 600)
 
         # Mascot Overlay
         self.mascot = MascotOverlay(self.root, self.data, on_close=self.on_mascot_closed)
 
-        # Setup System Tray
+        # System Tray
         self.tray = None
         self._init_tray()
 
-        # Start timer check loop
+        # Timer loop
         self._check_timer_loop()
 
     def _build_dashboard(self):
-        # Header
-        tk.Label(
-            self.root, text="Watertime 💧",
-            font=("Segoe UI", 20, "bold"), fg=BLUE_DARK, bg=BG_COLOR
-        ).pack(pady=(15, 2))
+        # 1. Header Frame with Streak Badge
+        header_frame = tk.Frame(self.root, bg=BG_COLOR)
+        header_frame.pack(fill="x", padx=25, pady=(14, 2))
 
-        self.lbl_sub = tk.Label(
-            self.root, text=f"Walking character will pop up every {self.data.interval_minutes} minutes directly on your screen!",
-            font=("Segoe UI", 10), fg="#37474F", bg=BG_COLOR, wraplength=380
+        tk.Label(
+            header_frame, text="Watertime 💧",
+            font=("Segoe UI", 18, "bold"), fg=BLUE_DARK, bg=BG_COLOR
+        ).pack(side="left")
+
+        self.lbl_streak = tk.Label(
+            header_frame, text=f"🔥 {self.data.streak} Day Streak",
+            font=("Segoe UI", 10, "bold"), fg="#D84315", bg="#FFECB3",
+            padx=10, pady=3, relief="groove", bd=1
         )
-        self.lbl_sub.pack(pady=(0, 10))
+        self.lbl_streak.pack(side="right")
 
-        # Card Frame for Stats
-        card = tk.Frame(self.root, bg=WHITE, padx=15, pady=12, relief="groove", bd=1)
-        card.pack(fill="x", padx=25, pady=(0, 12))
+        # Status / Snooze Bar
+        status_bar = tk.Frame(self.root, bg=BG_COLOR)
+        status_bar.pack(fill="x", padx=25, pady=(2, 8))
+
+        self.lbl_status = tk.Label(
+            status_bar, text="🟢 Reminders Active",
+            font=("Segoe UI", 9, "bold"), fg="#2E7D32", bg=BG_COLOR
+        )
+        self.lbl_status.pack(side="left")
+
+        # Quick Snooze / DND Buttons
+        snooze_btns = tk.Frame(status_bar, bg=BG_COLOR)
+        snooze_btns.pack(side="right")
+        tk.Label(snooze_btns, text="Snooze:", font=("Segoe UI", 9), fg="#455A64", bg=BG_COLOR).pack(side="left", padx=2)
+
+        for label, mins in [("30m", 30), ("1h", 60), ("2h", 120)]:
+            b = tk.Button(
+                snooze_btns, text=label, font=("Segoe UI", 8),
+                bg="#ECEFF1", fg="#37474F", relief="flat", padx=5, pady=1, cursor="hand2",
+                command=lambda m=mins: self.set_snooze(m)
+            )
+            b.pack(side="left", padx=2)
+
+        self.btn_resume = tk.Button(
+            snooze_btns, text="▶ Resume", font=("Segoe UI", 8, "bold"),
+            bg="#81C784", fg="#1B5E20", relief="flat", padx=6, pady=1, cursor="hand2",
+            command=lambda: self.set_snooze(0)
+        )
+        # resume button shown dynamically when paused
+
+        # 2. Card: Today's Intake & 7-Day History
+        card_stats = tk.Frame(self.root, bg=WHITE, padx=15, pady=10, relief="groove", bd=1)
+        card_stats.pack(fill="x", padx=25, pady=(0, 10))
 
         tk.Label(
-            card, text="Today's Water Intake",
-            font=("Segoe UI", 12, "bold"), fg=BLUE_DARK, bg=WHITE
+            card_stats, text="Today's Water Intake",
+            font=("Segoe UI", 11, "bold"), fg=BLUE_DARK, bg=WHITE
         ).pack(anchor="w")
 
         self.lbl_progress = tk.Label(
-            card, text=self._get_progress_str(),
-            font=("Segoe UI", 11), fg=TEXT_COLOR, bg=WHITE
+            card_stats, text=self._get_progress_str(),
+            font=("Segoe UI", 10), fg=TEXT_COLOR, bg=WHITE
         )
-        self.lbl_progress.pack(anchor="w", pady=(4, 6))
+        self.lbl_progress.pack(anchor="w", pady=(2, 4))
 
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("Water.Horizontal.TProgressbar", troughcolor="#E0F7FA", background=BLUE_MID, thickness=16)
+        style.configure("Water.Horizontal.TProgressbar", troughcolor="#E0F7FA", background=BLUE_MID, thickness=14)
         self.pbar = ttk.Progressbar(
-            card, style="Water.Horizontal.TProgressbar", length=360, mode="determinate"
+            card_stats, style="Water.Horizontal.TProgressbar", length=380, mode="determinate"
         )
         self.pbar["value"] = self.data.percentage
-        self.pbar.pack(fill="x", pady=(2, 6))
+        self.pbar.pack(fill="x", pady=(0, 8))
 
-        # Settings Card
-        settings_card = tk.Frame(self.root, bg=WHITE, padx=15, pady=12, relief="groove", bd=1)
-        settings_card.pack(fill="x", padx=25, pady=(0, 12))
+        # 7-Day Mini Chart
+        tk.Label(
+            card_stats, text="Last 7 Days History:",
+            font=("Segoe UI", 9, "bold"), fg="#546E7A", bg=WHITE
+        ).pack(anchor="w")
+
+        self.canvas_chart = tk.Canvas(card_stats, width=380, height=66, bg="#FAFAFA", highlightthickness=1, highlightbackground="#CFD8DC")
+        self.canvas_chart.pack(fill="x", pady=(3, 2))
+        self._render_weekly_chart()
+
+        # 3. Card: Settings (Name, Interval, Goal, Active Hours, Autostart)
+        settings_card = tk.Frame(self.root, bg=WHITE, padx=15, pady=10, relief="groove", bd=1)
+        settings_card.pack(fill="x", padx=25, pady=(0, 10))
 
         # Name row
         row_name = tk.Frame(settings_card, bg=WHITE)
-        row_name.pack(fill="x", pady=4)
-        tk.Label(row_name, text="Your Name:", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=WHITE, width=14, anchor="w").pack(side="left")
-        self.entry_name = tk.Entry(row_name, font=("Segoe UI", 10), width=18)
+        row_name.pack(fill="x", pady=2)
+        tk.Label(row_name, text="Your Name:", font=("Segoe UI", 9, "bold"), fg=TEXT_COLOR, bg=WHITE, width=15, anchor="w").pack(side="left")
+        self.entry_name = tk.Entry(row_name, font=("Segoe UI", 9), width=18)
         self.entry_name.insert(0, self.data.user_name)
         self.entry_name.pack(side="left", padx=4)
         self.entry_name.bind("<FocusOut>", self.on_name_changed)
@@ -594,8 +754,8 @@ class WatertimeApp:
 
         # Interval row
         row_interval = tk.Frame(settings_card, bg=WHITE)
-        row_interval.pack(fill="x", pady=4)
-        tk.Label(row_interval, text="Remind every:", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=WHITE, width=14, anchor="w").pack(side="left")
+        row_interval.pack(fill="x", pady=2)
+        tk.Label(row_interval, text="Remind every:", font=("Segoe UI", 9, "bold"), fg=TEXT_COLOR, bg=WHITE, width=15, anchor="w").pack(side="left")
 
         self.interval_options = {
             "1 min (Test)": 1,
@@ -608,19 +768,61 @@ class WatertimeApp:
             "60 mins": 60,
         }
         self.combo_interval = ttk.Combobox(
-            row_interval,
-            values=list(self.interval_options.keys()),
-            width=14, state="readonly", font=("Segoe UI", 9)
+            row_interval, values=list(self.interval_options.keys()),
+            width=15, state="readonly", font=("Segoe UI", 9)
         )
         current_mins = self.data.interval_minutes
-        found_key = None
-        for k, v in self.interval_options.items():
-            if v == current_mins:
-                found_key = k
-                break
-        self.combo_interval.set(found_key or f"{current_mins} mins")
+        found_key = next((k for k, v in self.interval_options.items() if v == current_mins), f"{current_mins} mins")
+        self.combo_interval.set(found_key)
         self.combo_interval.bind("<<ComboboxSelected>>", self.on_interval_selected)
         self.combo_interval.pack(side="left", padx=4)
+
+        # Daily Goal row
+        row_goal = tk.Frame(settings_card, bg=WHITE)
+        row_goal.pack(fill="x", pady=2)
+        tk.Label(row_goal, text="Daily Goal:", font=("Segoe UI", 9, "bold"), fg=TEXT_COLOR, bg=WHITE, width=15, anchor="w").pack(side="left")
+
+        self.goal_options = {
+            "6 glasses (1.5 L)": 6,
+            "8 glasses (2.0 L)": 8,
+            "10 glasses (2.5 L)": 10,
+            "12 glasses (3.0 L)": 12,
+            "14 glasses (3.5 L)": 14,
+        }
+        self.combo_goal = ttk.Combobox(
+            row_goal, values=list(self.goal_options.keys()),
+            width=15, state="readonly", font=("Segoe UI", 9)
+        )
+        curr_goal = self.data.goal
+        found_goal_key = next((k for k, v in self.goal_options.items() if v == curr_goal), f"{curr_goal} glasses")
+        self.combo_goal.set(found_goal_key)
+        self.combo_goal.bind("<<ComboboxSelected>>", self.on_goal_selected)
+        self.combo_goal.pack(side="left", padx=4)
+
+        # Active Hours row
+        row_hours = tk.Frame(settings_card, bg=WHITE)
+        row_hours.pack(fill="x", pady=2)
+        self.var_work_hours = tk.BooleanVar(value=self.data.work_hours_enabled)
+        chk_hours = tk.Checkbutton(
+            row_hours, text="Active Hours:", variable=self.var_work_hours,
+            font=("Segoe UI", 9, "bold"), bg=WHITE, fg=TEXT_COLOR,
+            activebackground=WHITE, selectcolor=WHITE,
+            command=self.on_work_hours_toggled
+        )
+        chk_hours.pack(side="left")
+
+        hour_vals = [f"{h:02d}:00" for h in range(24)]
+        self.combo_h_start = ttk.Combobox(row_hours, values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_start.set(f"{self.data.work_start_hour:02d}:00")
+        self.combo_h_start.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
+        self.combo_h_start.pack(side="left", padx=3)
+
+        tk.Label(row_hours, text="to", font=("Segoe UI", 8), bg=WHITE, fg="#546E7A").pack(side="left")
+
+        self.combo_h_end = ttk.Combobox(row_hours, values=hour_vals, width=6, state="readonly", font=("Segoe UI", 8))
+        self.combo_h_end.set(f"{self.data.work_end_hour:02d}:00")
+        self.combo_h_end.bind("<<ComboboxSelected>>", self.on_work_hours_changed)
+        self.combo_h_end.pack(side="left", padx=3)
 
         # Auto-start row
         self.var_autostart = tk.BooleanVar(value=is_autostart_enabled())
@@ -631,34 +833,83 @@ class WatertimeApp:
             activebackground=WHITE, selectcolor=WHITE,
             command=self.toggle_autostart
         )
-        self.chk_autostart.pack(anchor="w", pady=(4, 0))
+        self.chk_autostart.pack(anchor="w", pady=(3, 0))
 
-        # Bottom Actions
+        # 4. Bottom Actions
         actions_frame = tk.Frame(self.root, bg=BG_COLOR)
-        actions_frame.pack(pady=(4, 8))
+        actions_frame.pack(pady=(2, 6))
 
-        # Test Walk-in Button
         btn_test = tk.Button(
-            actions_frame, text="🚶 Test Walk-in Character Now!",
-            font=("Segoe UI", 11, "bold"), bg="#FF9800", fg=WHITE,
+            actions_frame, text="🚶 Test Mascot Now!",
+            font=("Segoe UI", 10, "bold"), bg="#FF9800", fg=WHITE,
             activebackground="#F57C00", activeforeground=WHITE,
-            relief="flat", bd=0, padx=16, pady=7, cursor="hand2",
+            relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
             command=self.test_mascot_now
         )
         btn_test.pack(side="left", padx=6)
 
-        # Minimize to Tray
         btn_min = tk.Button(
             actions_frame, text="Minimize to Tray",
-            font=("Segoe UI", 11), bg=BTN_SKIP, fg=WHITE,
+            font=("Segoe UI", 10), bg=BTN_SKIP, fg=WHITE,
             activebackground="#546E7A", activeforeground=WHITE,
-            relief="flat", bd=0, padx=14, pady=7, cursor="hand2",
+            relief="flat", bd=0, padx=12, pady=6, cursor="hand2",
             command=self.hide_dashboard
         )
         btn_min.pack(side="left", padx=6)
 
+    def _render_weekly_chart(self):
+        """Draw 7-day visual bar chart on canvas."""
+        self.canvas_chart.delete("all")
+        days = self.data.get_last_7_days()
+        w = 380
+        col_w = w / 7
+        bar_w = 22
+        base_y = 48
+        max_bar_h = 28
+        goal = self.data.goal
+
+        for idx, (d, d_str, cnt, is_today) in enumerate(days):
+            cx = idx * col_w + col_w / 2
+            bx1 = cx - bar_w / 2
+            bx2 = cx + bar_w / 2
+
+            ratio = min(1.0, cnt / max(1, goal))
+            bar_h = max(3, int(ratio * max_bar_h))
+            by1 = base_y - bar_h
+            by2 = base_y
+
+            # Color scheme
+            if cnt >= goal:
+                fill_col = "#4CAF50"   # Success green
+            elif cnt > 0:
+                fill_col = BLUE_MID    # Active water blue
+            else:
+                fill_col = "#CFD8DC"   # Light grey
+
+            outline_col = "#FF9800" if is_today else fill_col
+            border_w = 2 if is_today else 1
+
+            # Background slot
+            self.canvas_chart.create_rectangle(bx1, base_y - max_bar_h, bx2, base_y, fill="#ECEFF1", outline="", width=0)
+            # Active bar
+            self.canvas_chart.create_rectangle(bx1, by1, bx2, by2, fill=fill_col, outline=outline_col, width=border_w)
+
+            # Count text
+            self.canvas_chart.create_text(
+                cx, by1 - 6, text=str(cnt),
+                font=("Segoe UI", 8, "bold" if is_today else "normal"), fill="#37474F"
+            )
+            # Day label (e.g. Mon, Tue)
+            day_name = d.strftime("%a")
+            self.canvas_chart.create_text(
+                cx, base_y + 9, text=day_name,
+                font=("Segoe UI", 8, "bold" if is_today else "normal"),
+                fill="#01579B" if is_today else "#78909C"
+            )
+
     def _get_progress_str(self):
-        return f"{self.data.count} of {self.data.goal} glasses today ({self.data.percentage}%)"
+        return (f"{self.data.count} of {self.data.goal} glasses "
+                f"({self.data.litres_drunk:.2f}L / {self.data.litres_goal:.1f}L) • {self.data.percentage}%")
 
     def _center_window(self, w, h):
         sw = self.root.winfo_screenwidth()
@@ -677,10 +928,80 @@ class WatertimeApp:
         mins = self.interval_options.get(choice, 5)
         self.data.set_interval(mins)
         self.next_reminder_time = time.time() + (mins * 60)
-        self.lbl_sub.config(text=f"Walking character will pop up every {mins} minutes directly on your screen!")
+        self._update_status_label()
+
+    def on_goal_selected(self, event=None):
+        choice = self.combo_goal.get()
+        goal = self.goal_options.get(choice, 8)
+        self.data.set_goal(goal)
+        self._refresh_ui_progress()
+
+    def on_work_hours_toggled(self):
+        self.data.set_work_hours_enabled(self.var_work_hours.get())
+        self._update_status_label()
+
+    def on_work_hours_changed(self, event=None):
+        try:
+            start_h = int(self.combo_h_start.get().split(":")[0])
+            end_h = int(self.combo_h_end.get().split(":")[0])
+            self.data.set_work_start_hour(start_h)
+            self.data.set_work_end_hour(end_h)
+            self._update_status_label()
+        except Exception:
+            pass
 
     def toggle_autostart(self):
         set_autostart(self.var_autostart.get())
+
+    def set_snooze(self, minutes: int):
+        """Pause reminders for a duration in minutes (0 to resume)."""
+        if minutes == 0:
+            self.dnd_until = 0
+            self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
+        else:
+            self.dnd_until = time.time() + (minutes * 60)
+            self.next_reminder_time = self.dnd_until
+        self._update_status_label()
+
+    def _update_status_label(self):
+        now = time.time()
+        curr_hour = time.localtime().tm_hour
+
+        # Check Snooze
+        if self.dnd_until > now:
+            mins_left = max(1, int((self.dnd_until - now) / 60))
+            until_str = time.strftime("%H:%M", time.localtime(self.dnd_until))
+            self.lbl_status.config(text=f"⏸️ Snoozed ({mins_left}m left, until {until_str})", fg="#E65100")
+            self.btn_resume.pack(side="left", padx=2)
+            if self.tray:
+                self.tray.title = f"Watertime 💧 [Snoozed until {until_str}]"
+            return
+        else:
+            self.btn_resume.pack_forget()
+
+        # Check Active Hours
+        if self.data.work_hours_enabled:
+            s_h = self.data.work_start_hour
+            e_h = self.data.work_end_hour
+            if not (s_h <= curr_hour < e_h):
+                self.lbl_status.config(text=f"🌙 Outside Active Hours (Resumes at {s_h:02d}:00)", fg="#546E7A")
+                if self.tray:
+                    self.tray.title = f"Watertime 💧 [Quiet Hours until {s_h:02d}:00]"
+                return
+
+        # Normal Active
+        secs_left = max(0, int(self.next_reminder_time - now))
+        mins_left = secs_left // 60
+        self.lbl_status.config(text=f"🟢 Active (Next reminder in {mins_left}m)", fg="#2E7D32")
+        if self.tray:
+            self.tray.title = f"Watertime 💧 — {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L)"
+
+    def _refresh_ui_progress(self):
+        self.lbl_progress.config(text=self._get_progress_str())
+        self.pbar["value"] = self.data.percentage
+        self.lbl_streak.config(text=f"🔥 {self.data.streak} Day Streak")
+        self._render_weekly_chart()
+        self._update_status_label()
 
     def test_mascot_now(self):
         self.on_name_changed()
@@ -689,25 +1010,20 @@ class WatertimeApp:
     def hide_dashboard(self):
         self.on_name_changed()
         self.root.withdraw()
-        if self.tray:
-            self.tray.title = f"Watertime 💧 — {self.data.count}/{self.data.goal} glasses"
+        self._update_status_label()
 
     def show_dashboard(self, icon=None, item=None):
         self.root.after(0, self._show_dashboard_internal)
 
     def _show_dashboard_internal(self):
-        self.lbl_progress.config(text=self._get_progress_str())
-        self.pbar["value"] = self.data.percentage
+        self._refresh_ui_progress()
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
 
     def on_mascot_closed(self):
-        self.lbl_progress.config(text=self._get_progress_str())
-        self.pbar["value"] = self.data.percentage
+        self._refresh_ui_progress()
         self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
-        if self.tray:
-            self.tray.title = f"Watertime 💧 — {self.data.count}/{self.data.goal} glasses"
 
     def set_interval_from_tray(self, mins):
         self.data.set_interval(mins)
@@ -716,13 +1032,9 @@ class WatertimeApp:
 
     def _sync_interval_ui(self):
         current_mins = self.data.interval_minutes
-        found_key = None
-        for k, v in self.interval_options.items():
-            if v == current_mins:
-                found_key = k
-                break
-        self.combo_interval.set(found_key or f"{current_mins} mins")
-        self.lbl_sub.config(text=f"Walking character will pop up every {current_mins} minutes directly on your screen!")
+        found_key = next((k for k, v in self.interval_options.items() if v == current_mins), f"{current_mins} mins")
+        self.combo_interval.set(found_key)
+        self._update_status_label()
 
     # ── Tray Initialization ──
     def _init_tray(self):
@@ -747,17 +1059,25 @@ class WatertimeApp:
                 make_interval_item("60 mins", 60),
             )
 
+            snooze_menu = pystray.Menu(
+                pystray.MenuItem("⏸️ Snooze 30 mins", lambda: self.root.after(0, lambda: self.set_snooze(30))),
+                pystray.MenuItem("⏸️ Snooze 1 hour", lambda: self.root.after(0, lambda: self.set_snooze(60))),
+                pystray.MenuItem("⏸️ Snooze 2 hours", lambda: self.root.after(0, lambda: self.set_snooze(120))),
+                pystray.MenuItem("▶️ Resume Reminders", lambda: self.root.after(0, lambda: self.set_snooze(0))),
+            )
+
             menu = pystray.Menu(
                 pystray.MenuItem("💧 Watertime Active", None, enabled=False),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("🚶 Show Mascot Now", lambda: self.root.after(0, self.test_mascot_now)),
+                pystray.MenuItem("🔕 Snooze / DND", snooze_menu),
                 pystray.MenuItem("⏱️ Change Interval", interval_menu),
                 pystray.MenuItem("⚙️ Open Settings", self.show_dashboard),
                 pystray.MenuItem("🔄 Reset Today's Count", self.reset_count),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("❌ Quit Watertime", self.quit_app)
             )
-            self.tray = pystray.Icon("Watertime", icon_img, "Watertime 💧 (Running)", menu)
+            self.tray = pystray.Icon("Watertime", icon_img, "Watertime 💧", menu)
             threading.Thread(target=self.tray.run, daemon=True).start()
         except Exception as e:
             print(f"[Watertime] System tray error: {e}")
@@ -765,15 +1085,37 @@ class WatertimeApp:
 
     def reset_count(self, icon=None, item=None):
         self.data.reset()
-        self.root.after(0, lambda: self.lbl_progress.config(text=self._get_progress_str()))
-        self.root.after(0, lambda: self.pbar.configure(value=0))
+        self.root.after(0, self._refresh_ui_progress)
 
     def _check_timer_loop(self):
-        if time.time() >= self.next_reminder_time:
+        now = time.time()
+        curr_hour = time.localtime().tm_hour
+
+        # Check Snooze
+        if self.dnd_until > 0:
+            if now < self.dnd_until:
+                self._update_status_label()
+                self.root.after(1000, self._check_timer_loop)
+                return
+            else:
+                self.dnd_until = 0
+
+        # Check Working Hours
+        if self.data.work_hours_enabled:
+            s_h = self.data.work_start_hour
+            e_h = self.data.work_end_hour
+            if not (s_h <= curr_hour < e_h):
+                self._update_status_label()
+                self.root.after(1000, self._check_timer_loop)
+                return
+
+        # Check interval trigger
+        if now >= self.next_reminder_time:
             if not self.mascot.is_active:
                 self.mascot.trigger()
             self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
 
+        self._update_status_label()
         self.root.after(1000, self._check_timer_loop)
 
     def quit_app(self, icon=None, item=None):
@@ -799,7 +1141,6 @@ class WatertimeApp:
             self.hide_dashboard()
         else:
             self._show_dashboard_internal()
-            # Immediately trigger the walking character demonstration on startup
             self.root.after(600, self.test_mascot_now)
         self.root.mainloop()
 

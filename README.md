@@ -9,10 +9,14 @@ Available for both **Windows** and **Linux**.
 ## ✨ Features
 
 - **Animated Mascot Overlay:** A friendly 3D animated character walks directly onto your active screen to remind you to drink water.
-- **Natural Walking & Drinking:** Walks in from the left, takes refreshing sips from his water bottle, and asks if you've hydrated.
+- **Cartoon Speech Bubble Dialogues:** Beautiful comic-style speech bubbles with rotating, personalized hydration tips & quotes.
+- **Daily Streak Counter (🔥):** Tracks consecutive daily goal completions to keep you motivated.
+- **7-Day Visual History Chart:** Built-in interactive bar chart showing your hydration stats over the last 7 days.
+- **Custom Goal & Litres Counter:** Set daily targets (6, 8, 10, 12, 14 glasses) with automatic Litres (L) calculations (250ml/glass).
+- **Meeting / Snooze / DND Mode (🔕):** Quick 30m, 1h, or 2h snooze directly from the System Tray and Dashboard.
+- **Active Hours Schedule:** Set customizable working hours (e.g. 09:00 to 21:00) so reminders never interrupt your sleep.
 - **Interactive Prompts:** Quick `YES` and `Remind me later` buttons with positive feedback.
-- **Daily Intake Tracking:** Set your daily target and monitor progress with a live progress bar.
-- **Customizable Intervals:** Choose reminder intervals (e.g., 5 min, 10 min, 15 min, 30 min, 60 min).
+- **System Tray Quick Controls:** Adjust intervals, snooze reminders, or test animations directly from your taskbar.
 - **Auto-Start on Boot:** Toggle automatic startup on system boot with a single click.
 - **Cross-Platform:** Native support for both **Windows** and **Linux**.
 
