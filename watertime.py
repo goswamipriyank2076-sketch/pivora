@@ -585,7 +585,20 @@ def create_tray_icon_image(count=0, goal=8, size=64):
 def load_gif_frames(master, target_h=320):
     FRAMES_DIR.mkdir(parents=True, exist_ok=True)
     frames_paths = sorted(list(FRAMES_DIR.glob("frame_*.png")))
-    if not frames_paths and GIF_PATH.exists():
+    
+    # Check if frames need to be regenerated as true transparent RGBA
+    need_regen = False
+    if not frames_paths:
+        need_regen = True
+    else:
+        try:
+            with Image.open(frames_paths[0]) as test_im:
+                if test_im.mode != "RGBA":
+                    need_regen = True
+        except Exception:
+            need_regen = True
+
+    if need_regen and GIF_PATH.exists():
         gif = Image.open(GIF_PATH)
         for i in range(getattr(gif, "n_frames", 1)):
             gif.seek(i)
@@ -593,27 +606,24 @@ def load_gif_frames(master, target_h=320):
             w, h = rgba.size
             target_w = int(w * (target_h / h))
             resized = rgba.resize((target_w, target_h), Image.Resampling.LANCZOS)
-            out = Image.new("RGB", (target_w, target_h), (1, 1, 1))
-            pix_in = resized.load()
-            pix_out = out.load()
-            for x in range(target_w):
-                for y in range(target_h):
-                    r, g, b, a = pix_in[x, y]
-                    if a > 100:
-                        pix_out[x, y] = (r, g, b)
-                    else:
-                        pix_out[x, y] = (1, 1, 1)
             fpath = FRAMES_DIR / f"frame_{i:02d}.png"
-            out.save(fpath)
+            resized.save(fpath)
         frames_paths = sorted(list(FRAMES_DIR.glob("frame_*.png")))
 
     tk_frames = []
     for p in frames_paths:
         try:
-            im = Image.open(p)
-            tk_frames.append(ImageTk.PhotoImage(im, master=master))
+            im = Image.open(p).convert("RGBA")
+            if sys.platform == "win32":
+                # On Windows, composite transparent pixels cleanly onto TRANS_COLOR for GDI colorkey transparency
+                bg = Image.new("RGBA", im.size, (1, 1, 1, 255))
+                comp = Image.alpha_composite(bg, im)
+                tk_frames.append(ImageTk.PhotoImage(comp, master=master))
+            else:
+                # On Linux / macOS, keep true transparent alpha channel
+                tk_frames.append(ImageTk.PhotoImage(im, master=master))
         except Exception as e:
-            print(f"Error loading frame {p}: {e}")
+            print(f"[Pivora] Error loading frame {p}: {e}")
     return tk_frames
 
 
@@ -632,11 +642,28 @@ class MascotOverlay:
         self.win = tk.Toplevel(master)
         self.win.overrideredirect(True)
         self.win.wm_attributes("-topmost", True)
-        try:
-            self.win.wm_attributes("-transparentcolor", TRANS_COLOR)
-        except Exception:
-            pass
-        self.win.configure(bg=TRANS_COLOR)
+
+        if sys.platform == "win32":
+            overlay_bg = TRANS_COLOR
+            try:
+                self.win.wm_attributes("-transparentcolor", TRANS_COLOR)
+            except Exception:
+                pass
+            border_thickness = 0
+        else:
+            # On Linux / X11 / Wayland, use polished card aesthetic to avoid any raw black boxes
+            overlay_bg = "#FFFFFF"
+            border_thickness = 1
+            try:
+                self.win.wm_attributes("-type", "notification")
+            except Exception:
+                pass
+            try:
+                self.win.wm_attributes("-alpha", 0.98)
+            except Exception:
+                pass
+
+        self.win.configure(bg=overlay_bg)
 
         self.w = 340
         self.h = 450
@@ -652,7 +679,8 @@ class MascotOverlay:
 
         self.canvas = tk.Canvas(
             self.win, width=self.w, height=self.h,
-            bg=TRANS_COLOR, highlightthickness=0
+            bg=overlay_bg, highlightthickness=border_thickness,
+            highlightbackground=CARD_BORDER
         )
         self.canvas.pack(fill="both", expand=True)
 
@@ -668,7 +696,7 @@ class MascotOverlay:
         self.bubble_item = self.canvas.create_image(self.w // 2, 45, image=None)
 
         # Action Buttons
-        self.btn_frame_w = tk.Frame(self.win, bg=TRANS_COLOR)
+        self.btn_frame_w = tk.Frame(self.win, bg=overlay_bg)
         self.btn_yes = tk.Button(
             self.btn_frame_w, text="  💧 Drink (YES)  ",
             font=("Segoe UI", 10, "bold"),
