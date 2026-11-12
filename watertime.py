@@ -20,7 +20,7 @@ from pathlib import Path
 
 try:
     import pystray
-    from PIL import Image, ImageTk, ImageDraw
+    from PIL import Image, ImageTk, ImageDraw, ImageFont
 except ImportError:
     print("Missing dependencies. Run: pip install pystray Pillow")
     sys.exit(1)
@@ -58,13 +58,71 @@ AMBER_ACCENT     = "#F59E0B"   # Streak / Warning
 AMBER_HOVER      = "#D97706"
 
 MASCOT_QUOTES = [
-    "Hey {name}!\nTime for a refreshing sip! 💧",
-    "Water break, {name}!\nYour brain needs hydration! 🧠✨",
-    "Gulp gulp!\nA cool glass gives you energy! ⚡",
-    "Hydration check!\nTake a pause and drink water! 🧊",
-    "Stay fresh, {name}!\nDrink a glass to hit your goal! 🎯",
-    "Healthy body, sharp mind!\nGrab a cold drink! 🌊",
+    ("Hey {name}!", "Time for a refreshing sip!", "💧"),
+    ("Water break, {name}!", "Your brain needs hydration!", "✨"),
+    ("Gulp gulp, {name}!", "A cool glass gives you energy!", "⚡"),
+    ("Hydration check!", "Take a pause and drink water!", "🧊"),
+    ("Stay fresh, {name}!", "Drink a glass to hit your goal!", "🎯"),
+    ("Healthy body, sharp mind!", "Grab a cold drink!", "🌊"),
 ]
+
+def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str = "", w: int = 310, h: int = 78):
+    """Render a crisp antialiased speech bubble with full-color native Windows emojis."""
+    raw = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(raw)
+
+    bx1, by1 = 5, 4
+    bx2, by2 = w - 5, h - 14
+    r = 16
+
+    # Soft drop shadow
+    draw.rounded_rectangle([bx1 + 1, by1 + 2, bx2 + 1, by2 + 2], radius=r, fill=(0, 0, 0, 30))
+    # Crisp white bubble body with blue border
+    draw.rounded_rectangle([bx1, by1, bx2, by2], radius=r, fill=(255, 255, 255, 255), outline=(2, 136, 209, 255), width=2)
+
+    # Pointer tail pointing towards mascot head
+    cx = w // 2
+    tail_pts = [(cx - 9, by2 - 1), (cx + 9, by2 - 1), (cx, by2 + 11)]
+    draw.polygon(tail_pts, fill=(255, 255, 255, 255), outline=(2, 136, 209, 255))
+    draw.line([(cx - 7, by2 - 1), (cx + 7, by2 - 1)], fill=(255, 255, 255, 255), width=3)
+
+    # Font setup
+    font_segoe = "C:/Windows/Fonts/segoeuib.ttf" if os.path.exists("C:/Windows/Fonts/segoeuib.ttf") else "arial.ttf"
+    font_emoji = "C:/Windows/Fonts/seguiemj.ttf" if os.path.exists("C:/Windows/Fonts/seguiemj.ttf") else font_segoe
+
+    try:
+        text_font = ImageFont.truetype(font_segoe, 13)
+        emoji_font = ImageFont.truetype(font_emoji, 17)
+    except Exception:
+        text_font = ImageFont.load_default()
+        emoji_font = text_font
+
+    # Line 1 Title
+    t1_box = draw.textbbox((0, 0), title, font=text_font)
+    t1_w = t1_box[2] - t1_box[0]
+    draw.text(((w - t1_w) // 2, 13), title, font=text_font, fill=(1, 87, 155, 255))
+
+    # Line 2 Subtitle with Full-Color Emoji
+    if subtitle:
+        l2_box = draw.textbbox((0, 0), subtitle, font=text_font)
+        l2_w = l2_box[2] - l2_box[0]
+        em_box = draw.textbbox((0, 0), emoji_char, font=emoji_font) if emoji_char else (0, 0, 0, 0)
+        em_w = em_box[2] - em_box[0] if emoji_char else 0
+
+        space = 6 if emoji_char else 0
+        total_w = l2_w + em_w + space
+        start_x = (w - total_w) // 2
+
+        draw.text((start_x, 36), subtitle, font=text_font, fill=(1, 87, 155, 255))
+        if emoji_char:
+            try:
+                draw.text((start_x + l2_w + space, 34), emoji_char, font=emoji_font, fill=(0, 0, 0, 255), embedded_color=True)
+            except Exception:
+                draw.text((start_x + l2_w + space, 34), emoji_char, font=emoji_font, fill=(1, 87, 155, 255))
+
+    final_img = Image.new("RGB", (w, h), (1, 1, 1))
+    final_img.paste(raw, (0, 0), raw)
+    return final_img
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -445,13 +503,9 @@ class MascotOverlay:
         initial_img = self.frames[0] if self.frames else None
         self.char_id = self.canvas.create_image(self.w // 2, 285, image=initial_img)
 
-        # Cartoon Speech Bubble
-        self.bubble_items = self._create_speech_bubble()
-        self.bubble_text = self.canvas.create_text(
-            self.w // 2, 45,
-            text="", font=("Segoe UI", 11, "bold"),
-            fill="#01579B", justify="center"
-        )
+        # Full-Color Antialiased Speech Bubble (with Windows Color Emojis)
+        self.bubble_photo = None
+        self.bubble_item = self.canvas.create_image(self.w // 2, 45, image=None)
 
         # Action Buttons
         self.btn_frame_w = tk.Frame(self.win, bg=TRANS_COLOR)
@@ -483,27 +537,11 @@ class MascotOverlay:
         self.step_idx = 0
         self.total_ticks = 0
 
-    def _create_speech_bubble(self):
-        x1, y1 = 20, 10
-        x2, y2 = self.w - 20, 80
-        r = 14
-        cx = self.w // 2
-
-        tail = self.canvas.create_polygon([
-            cx - 9, y2 - 2,
-            cx + 9, y2 - 2,
-            cx, y2 + 13
-        ], fill="#FFFFFF", outline="#0288D1", width=2)
-
-        pts = [
-            x1 + r, y1,      x2 - r, y1,      x2, y1,
-            x2, y1 + r,      x2, y2 - r,      x2, y2,
-            x2 - r, y2,      x1 + r, y2,      x1, y2,
-            x1, y2 - r,      x1, y1 + r,      x1, y1
-        ]
-        bubble = self.canvas.create_polygon(pts, smooth=True, fill="#FFFFFF", outline="#0288D1", width=2)
-        seam = self.canvas.create_rectangle(cx - 7, y2 - 3, cx + 7, y2 + 1, fill="#FFFFFF", outline="#FFFFFF")
-        return [tail, bubble, seam]
+    def _set_bubble(self, title: str, subtitle: str = "", emoji: str = ""):
+        """Render and display crisp speech bubble with native color emojis."""
+        img = render_speech_bubble_image(title, subtitle, emoji, w=310, h=78)
+        self.bubble_photo = ImageTk.PhotoImage(img, master=self.win)
+        self.canvas.itemconfig(self.bubble_item, image=self.bubble_photo)
 
     def trigger(self):
         if self.is_active:
@@ -512,9 +550,7 @@ class MascotOverlay:
         self.step_idx = 0
         self.total_ticks = 0
 
-        for item in self.bubble_items:
-            self.canvas.itemconfigure(item, state="hidden")
-        self.canvas.itemconfigure(self.bubble_text, state="hidden")
+        self.canvas.itemconfigure(self.bubble_item, state="hidden")
         self.canvas.itemconfigure(self.btn_window, state="hidden")
 
         if self.frames and self.char_id:
@@ -576,12 +612,10 @@ class MascotOverlay:
             if self.char_id and len(self.frames) > 0:
                 self.canvas.itemconfig(self.char_id, image=self.frames[0])
 
-            quote = random.choice(MASCOT_QUOTES).format(name=self.data.user_name)
-            self.canvas.itemconfig(self.bubble_text, text=quote)
+            t, s, e = random.choice(MASCOT_QUOTES)
+            self._set_bubble(t.format(name=self.data.user_name), s.format(name=self.data.user_name), e)
 
-            for item in self.bubble_items:
-                self.canvas.itemconfigure(item, state="normal")
-            self.canvas.itemconfigure(self.bubble_text, state="normal")
+            self.canvas.itemconfigure(self.bubble_item, state="normal")
             self.canvas.itemconfigure(self.btn_window, state="normal")
 
             self.dismiss_job = self.win.after(20000, self.on_later)
@@ -592,10 +626,7 @@ class MascotOverlay:
             self.dismiss_job = None
         self.data.add_glass()
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        self.canvas.itemconfig(
-            self.bubble_text,
-            text=f"Awesome, {self.data.user_name}!\nStay healthy & hydrated! 💧✨"
-        )
+        self._set_bubble(f"Awesome, {self.data.user_name}!", "Stay healthy & hydrated!", "💧")
         self.win.after(1100, self._walk_out)
 
     def on_later(self):
@@ -603,16 +634,11 @@ class MascotOverlay:
             self.win.after_cancel(self.dismiss_job)
             self.dismiss_job = None
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        self.canvas.itemconfig(
-            self.bubble_text,
-            text=f"No worries, {self.data.user_name}!\nI will remind you soon! 👍"
-        )
+        self._set_bubble(f"No worries, {self.data.user_name}!", "I will remind you soon!", "👍")
         self.win.after(1000, self._walk_out)
 
     def _walk_out(self):
-        for item in self.bubble_items:
-            self.canvas.itemconfigure(item, state="hidden")
-        self.canvas.itemconfigure(self.bubble_text, state="hidden")
+        self.canvas.itemconfigure(self.bubble_item, state="hidden")
         self.canvas.itemconfigure(self.btn_window, state="hidden")
 
         self.step_idx = 0
