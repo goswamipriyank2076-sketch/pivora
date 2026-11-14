@@ -1,0 +1,24 @@
+name: Verify login startup
+on: push
+jobs:
+  startup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth desktop-file-utils libayatana-appindicator3-1
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a python verify_startup.py
+      - if: runner.os != 'Linux'
+        run: python verify_startup.py
+

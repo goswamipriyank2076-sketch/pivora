@@ -3,11 +3,13 @@ Watertime (Pivora) - Walking Mascot Water Reminder
 Handcrafted Consumer Edition featuring the 3D Boy Mascot, Interactive Glasses, and Hydration Analytics.
 """
 
+import base64
 import json
 import math
 import os
 import plistlib
 import shutil
+import subprocess
 import sys
 import time
 import random
@@ -91,6 +93,24 @@ def screen_work_area(window):
     return 0, 0, window.winfo_screenwidth(), window.winfo_screenheight()
 
 
+def application_command():
+    command = [sys.executable]
+    if not getattr(sys, "frozen", False):
+        command.append(str(Path(__file__).resolve()))
+    return command
+
+
+def desktop_exec(arguments):
+    # Desktop Entry values and Exec arguments have separate escaping rules.
+    quoted = []
+    for argument in arguments:
+        value = argument.replace("%", "%%")
+        for character in ('\\', '"', '`', '$'):
+            value = value.replace(character, '\\' + character)
+        quoted.append('"' + value + '"')
+    return " ".join(quoted).replace('\\', '\\\\')
+
+
 def install_linux_launcher():
     """Register the current installation with the user's desktop menu."""
     data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
@@ -99,17 +119,7 @@ def install_linux_launcher():
     icon.parent.mkdir(parents=True, exist_ok=True)
     launcher.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(APP_ICON_PATH, icon)
-    arguments = [sys.executable]
-    if not getattr(sys, "frozen", False):
-        arguments.append(str(Path(__file__).resolve()))
-    # Desktop Entry values and Exec arguments have separate escaping rules.
-    quoted = []
-    for argument in arguments:
-        value = argument.replace("%", "%%")
-        for character in ('\\', '"', '`', '$'):
-            value = value.replace(character, '\\' + character)
-        quoted.append('"' + value + '"')
-    command = " ".join(quoted).replace('\\', '\\\\')
+    command = desktop_exec(application_command())
     launcher.write_text(
         "[Desktop Entry]\nType=Application\nName=Pivora\n"
         "Comment=Daily water reminder\n"
@@ -161,10 +171,10 @@ OCEAN_BLUE       = "#0284C7"   # Vibrant Water Blue
 OCEAN_DARK       = "#0369A1"   # Deep Ocean Blue
 EMERALD_GREEN    = "#10B981"   # Target Completed
 AMBER_GOLD       = "#F59E0B"   # Warm Streak Gold
-REMINDER_BG      = "#10213A"
+REMINDER_BG      = "#0284C7"
 REMINDER_BORDER  = "#7DD3FC"
 REMINDER_TEXT    = "#FFFFFF"
-REMINDER_MUTED   = "#DCEAF7"
+REMINDER_MUTED   = "#E0F2FE"
 
 MASCOT_QUOTES = [
     ("Hey {name}!", "Time for a refreshing sip!", "💧"),
@@ -235,16 +245,40 @@ def load_dashboard_mascot_image(target_h=150):
         print(f"[Pivora] Mascot image error: {e}")
         return None
 
-def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str = "", w: int = 310, h: int = 78):
-    """Draw the reminder with a dark surface and a bright outline."""
+def render_pill_button(text: str, bg: str, fg: str, border: str = None, w: int = 115, h: int = 28, bg_canvas: str = "#0284C7"):
+    """Draw a smooth anti-aliased pill-shaped button."""
+    raw = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(raw)
+    r = h // 2
+    if border:
+        d.rounded_rectangle([0, 0, w - 1, h - 1], radius=r, fill=bg, outline=border, width=1)
+    else:
+        d.rounded_rectangle([0, 0, w - 1, h - 1], radius=r, fill=bg)
+    font_segoe = "C:/Windows/Fonts/segoeuib.ttf" if os.path.exists("C:/Windows/Fonts/segoeuib.ttf") else "arial.ttf"
+    try:
+        btn_font = ImageFont.truetype(font_segoe, 10)
+    except OSError:
+        btn_font = ImageFont.load_default(size=10)
+    d.text((w // 2, h // 2 - 1), text, font=btn_font, fill=fg, anchor="mm")
+
+    c_rgb = tuple(int(bg_canvas.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
+    out = Image.new("RGB", (w, h), c_rgb)
+    out.paste(raw, (0, 0), raw)
+    return out
+
+
+def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str = "", w: int = 320, h: int = 114, centered: bool = False):
+    """Render a vibrant, high-contrast, rounded speech bubble with 3D drop shadow."""
     raw = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(raw)
 
-    bx1, by1 = 5, 4
-    bx2, by2 = w - 5, h - 14
+    bx1, by1 = 6, 4
+    bx2, by2 = w - 6, h - 16
     r = 16
 
-    draw.rounded_rectangle([bx1 + 1, by1 + 2, bx2 + 1, by2 + 2], radius=r, fill=(0, 0, 0, 25))
+    # Multi-stage drop shadow for prominent elevation on white and dark backgrounds
+    for off, alpha in [(4, 25), (3, 45), (2, 70), (1, 90)]:
+        draw.rounded_rectangle([bx1, by1 + off, bx2, by2 + off], radius=r, fill=(0, 0, 0, alpha))
     draw.rounded_rectangle([bx1, by1, bx2, by2], radius=r, fill=REMINDER_BG, outline=REMINDER_BORDER, width=2)
 
     cx = w // 2
@@ -256,13 +290,13 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
     font_emoji = "C:/Windows/Fonts/seguiemj.ttf" if os.path.exists("C:/Windows/Fonts/seguiemj.ttf") else font_segoe
 
     try:
-        title_font = ImageFont.truetype(font_segoe, 16)
-        text_font = ImageFont.truetype(font_segoe, 13)
+        title_font = ImageFont.truetype(font_segoe, 15)
+        text_font = ImageFont.truetype(font_segoe, 12)
     except OSError:
-        title_font = ImageFont.load_default(size=16)
-        text_font = ImageFont.load_default(size=13)
+        title_font = ImageFont.load_default(size=15)
+        text_font = ImageFont.load_default(size=12)
     try:
-        emoji_font = ImageFont.truetype(font_emoji, 17)
+        emoji_font = ImageFont.truetype(font_emoji, 15)
     except OSError:
         emoji_font = None
 
@@ -281,7 +315,8 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
 
     line_width = bx2 - bx1 - 32
     title = fit_line(title, title_font, line_width)
-    draw.text((cx, 23), title, font=title_font, fill=REMINDER_TEXT, anchor="mm")
+    ty = 36 if centered else 22
+    draw.text((cx, ty), title, font=title_font, fill=REMINDER_TEXT, anchor="mm")
 
     if subtitle:
         emoji_width = draw.textlength(emoji_char, font=emoji_font) + 6 if emoji_char and emoji_font else 0
@@ -289,10 +324,11 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
         subtitle_width = draw.textlength(subtitle, font=text_font)
         total_w = subtitle_width + emoji_width
         start_x = (w - total_w) // 2
+        sy = 60 if centered else 43
 
-        draw.text((start_x, 46), subtitle, font=text_font, fill=REMINDER_MUTED, anchor="lm")
+        draw.text((start_x, sy), subtitle, font=text_font, fill=REMINDER_MUTED, anchor="lm")
         if emoji_width:
-            emoji_position = (start_x + subtitle_width + 6, 46)
+            emoji_position = (start_x + subtitle_width + 6, sy)
             try:
                 draw.text(emoji_position, emoji_char, font=emoji_font, fill=REMINDER_MUTED, anchor="lm", embedded_color=True)
             except (OSError, ValueError):
@@ -520,16 +556,56 @@ class WaterData:
 def macos_launch_agent_path():
     return Path.home() / "Library" / "LaunchAgents" / f"{MACOS_BUNDLE_ID}.plist"
 
+def windows_startup_shortcut():
+    return Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Startup/Watertime.lnk"
+
+
+def linux_autostart_path():
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return config_home / "autostart/watertime.desktop"
+
 
 def is_autostart_enabled():
     if IS_MACOS:
         return macos_launch_agent_path().exists()
     if sys.platform == "win32":
-        startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs/Startup"
-        return (startup_dir / "Watertime.lnk").exists()
+        return windows_startup_shortcut().exists()
     else:
-        autostart_dir = Path.home() / ".config" / "autostart"
-        return (autostart_dir / "watertime.desktop").exists()
+        return linux_autostart_path().exists()
+
+
+def write_windows_startup_shortcut(shortcut_file):
+    command = application_command()
+    target = Path(command[0])
+    if not getattr(sys, "frozen", False):
+        pythonw = target.with_name("pythonw.exe")
+        if pythonw.is_file():
+            target = pythonw
+
+    def ps_string(value):
+        return "'" + str(value).replace("'", "''") + "'"
+
+    arguments = subprocess.list2cmdline([*command[1:], "--minimized"])
+    script = (
+        "$ErrorActionPreference = 'Stop'\n"
+        "$shell = New-Object -ComObject WScript.Shell\n"
+        f"$link = $shell.CreateShortcut({ps_string(shortcut_file)})\n"
+        f"$link.TargetPath = {ps_string(target)}\n"
+        f"$link.Arguments = {ps_string(arguments)}\n"
+        f"$link.WorkingDirectory = {ps_string(target.parent)}\n"
+        "$link.Description = 'Pivora Water Reminder'\n"
+        "$link.Save()\n"
+    )
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    try:
+        subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            check=True, creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise OSError("Windows could not save the Startup shortcut.") from error
+    if not shortcut_file.is_file():
+        raise OSError("Windows did not create the Startup shortcut.")
 
 def set_autostart(enable: bool):
     if IS_MACOS:
@@ -539,7 +615,7 @@ def set_autostart(enable: bool):
                 bundle = Path(sys.executable).parent.parent.parent
                 command = ["/usr/bin/open", "-a", str(bundle), "--args", "--minimized"]
             else:
-                command = [sys.executable, str(Path(__file__).resolve()), "--minimized"]
+                command = [*application_command(), "--minimized"]
             agent_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path = agent_path.with_suffix(".tmp")
             temp_path.write_bytes(plistlib.dumps({
@@ -549,42 +625,20 @@ def set_autostart(enable: bool):
                 "LimitLoadToSessionType": "Aqua",
             }))
             temp_path.replace(agent_path)
-        elif agent_path.exists():
-            agent_path.unlink()
-    elif sys.platform == "win32":
-        startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs/Startup"
-        shortcut_file = startup_dir / "Watertime.lnk"
-        if enable:
-            script_path = Path(__file__).resolve()
-            py_exe = Path(sys.executable).parent / "pythonw.exe"
-            if not py_exe.exists():
-                py_exe = Path(sys.executable)
-            powershell_cmd = (
-                f'$WshShell = New-Object -ComObject WScript.Shell; '
-                f'$Shortcut = $WshShell.CreateShortcut("{shortcut_file}"); '
-                f'$Shortcut.TargetPath = "{py_exe}"; '
-                f'$Shortcut.Arguments = \'"{script_path}" --minimized\'; '
-                f'$Shortcut.WorkingDirectory = "{script_path.parent}"; '
-                f'$Shortcut.Description = "Watertime Auto Reminder"; '
-                f'$Shortcut.Save()'
-            )
-            os.system(f'powershell -Command "{powershell_cmd}"')
         else:
-            if shortcut_file.exists():
-                try:
-                    shortcut_file.unlink()
-                except Exception:
-                    pass
-    else:
-        autostart_dir = Path.home() / ".config" / "autostart"
-        desktop_file = autostart_dir / "watertime.desktop"
+            agent_path.unlink(missing_ok=True)
+    elif sys.platform == "win32":
+        shortcut_file = windows_startup_shortcut()
         if enable:
-            autostart_dir.mkdir(parents=True, exist_ok=True)
-            if getattr(sys, "frozen", False):
-                exec_cmd = f'"{sys.executable}" --minimized'
-            else:
-                script_path = Path(__file__).resolve()
-                exec_cmd = f'python3 "{script_path}" --minimized'
+            shortcut_file.parent.mkdir(parents=True, exist_ok=True)
+            write_windows_startup_shortcut(shortcut_file)
+        else:
+            shortcut_file.unlink(missing_ok=True)
+    else:
+        desktop_file = linux_autostart_path()
+        if enable:
+            desktop_file.parent.mkdir(parents=True, exist_ok=True)
+            exec_cmd = desktop_exec([*application_command(), "--minimized"])
             content = f"""[Desktop Entry]
 Type=Application
 Exec={exec_cmd}
@@ -596,11 +650,7 @@ Comment=Daily Water Drink Reminder
 """
             desktop_file.write_text(content, encoding="utf-8")
         else:
-            if desktop_file.exists():
-                try:
-                    desktop_file.unlink()
-                except Exception:
-                    pass
+            desktop_file.unlink(missing_ok=True)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -829,26 +879,27 @@ class MascotOverlay:
         self.char_id = self.canvas.create_image(self.w // 2, 285, image=initial_img)
 
         self.bubble_photo = None
-        self.bubble_item = self.canvas.create_image(self.w // 2, 45, image=None)
+        self.bubble_item = self.canvas.create_image(self.w // 2, 58, image=None)
 
-        style = ttk.Style(self.win)
-        for name, background, foreground, hover in (
-            ("ReminderLog.TButton", "#A5E2FF", REMINDER_BG, "#D6F2FF"),
-            ("ReminderLater.TButton", "#263D59", REMINDER_TEXT, "#375676"),
-        ):
-            style.configure(name, background=background, foreground=foreground, padding=(14, 7),
-                            font="TkDefaultFont", bordercolor=REMINDER_BORDER,
-                            lightcolor=background, darkcolor=background, focuscolor=foreground)
-            style.map(name, background=[("pressed", hover), ("active", hover)])
+        self.pill_yes_normal = ImageTk.PhotoImage(render_pill_button("💧 Log a glass", bg="#FFFFFF", fg="#0284C7", border="#BAE6FD", w=115, h=28, bg_canvas=REMINDER_BG), master=self.win)
+        self.pill_yes_hover = ImageTk.PhotoImage(render_pill_button("💧 Log a glass", bg="#E0F2FE", fg="#0369A1", border="#7DD3FC", w=115, h=28, bg_canvas=REMINDER_BG), master=self.win)
+        self.pill_later_normal = ImageTk.PhotoImage(render_pill_button("Remind later", bg="#0369A1", fg="#FFFFFF", border="#7DD3FC", w=105, h=28, bg_canvas=REMINDER_BG), master=self.win)
+        self.pill_later_hover = ImageTk.PhotoImage(render_pill_button("Remind later", bg="#0C4A6E", fg="#FFFFFF", border="#BAE6FD", w=105, h=28, bg_canvas=REMINDER_BG), master=self.win)
 
-        self.btn_frame_w = tk.Frame(self.win, bg=REMINDER_BG, padx=6, pady=5,
-                                    highlightthickness=1, highlightbackground=REMINDER_BORDER)
-        ttk.Button(self.btn_frame_w, text="Log a glass", style="ReminderLog.TButton",
-                   cursor="hand2", command=self.on_yes).pack(side="left", padx=(0, 6))
-        ttk.Button(self.btn_frame_w, text="Remind me later", style="ReminderLater.TButton",
-                   cursor="hand2", command=self.on_later).pack(side="left")
+        self.btn_frame_w = tk.Frame(self.win, bg=REMINDER_BG, bd=0, highlightthickness=0)
+        self.btn_yes = tk.Label(self.btn_frame_w, image=self.pill_yes_normal, bg=REMINDER_BG, bd=0, cursor="hand2")
+        self.btn_yes.pack(side="left", padx=(0, 6))
+        self.btn_yes.bind("<Button-1>", lambda e: self.on_yes())
+        self.btn_yes.bind("<Enter>", lambda e: self.btn_yes.configure(image=self.pill_yes_hover))
+        self.btn_yes.bind("<Leave>", lambda e: self.btn_yes.configure(image=self.pill_yes_normal))
 
-        self.btn_window = self.canvas.create_window(self.w // 2, 115, window=self.btn_frame_w)
+        self.btn_later = tk.Label(self.btn_frame_w, image=self.pill_later_normal, bg=REMINDER_BG, bd=0, cursor="hand2")
+        self.btn_later.pack(side="left")
+        self.btn_later.bind("<Button-1>", lambda e: self.on_later())
+        self.btn_later.bind("<Enter>", lambda e: self.btn_later.configure(image=self.pill_later_hover))
+        self.btn_later.bind("<Leave>", lambda e: self.btn_later.configure(image=self.pill_later_normal))
+
+        self.btn_window = self.canvas.create_window(self.w // 2, 78, window=self.btn_frame_w)
 
         self.dismiss_job = None
         self.anim_job = None
@@ -856,8 +907,8 @@ class MascotOverlay:
         self.step_idx = 0
         self.total_ticks = 0
 
-    def _set_bubble(self, title: str, subtitle: str = "", emoji: str = ""):
-        img = render_speech_bubble_image(title, subtitle, emoji, w=310, h=78)
+    def _set_bubble(self, title: str, subtitle: str = "", emoji: str = "", centered: bool = False):
+        img = render_speech_bubble_image(title, subtitle, emoji, w=320, h=114, centered=centered)
         self.bubble_photo = ImageTk.PhotoImage(img, master=self.win)
         self.canvas.itemconfig(self.bubble_item, image=self.bubble_photo)
         if self.x11_display:
@@ -985,7 +1036,7 @@ class MascotOverlay:
                 self._show_frame(0)
 
             t, s, e = random.choice(MASCOT_QUOTES)
-            self._set_bubble(t.format(name=self.data.user_name), s.format(name=self.data.user_name), e)
+            self._set_bubble(t.format(name=self.data.user_name), s.format(name=self.data.user_name), e, centered=False)
 
             self.canvas.itemconfigure(self.bubble_item, state="normal")
             self.canvas.itemconfigure(self.btn_window, state="normal")
@@ -1001,10 +1052,10 @@ class MascotOverlay:
         self.data.add_glass()
         self.canvas.itemconfigure(self.btn_window, state="hidden")
         if was_below_goal and self.data.count >= self.data.goal:
-            self._set_bubble(f"Goal Reached, {self.data.user_name}! 🎉", f"You hit your {self.data.goal} glasses target! Great job!", "🏆")
+            self._set_bubble(f"Goal Reached, {self.data.user_name}! 🎉", f"You hit your {self.data.goal} glasses target! Great job!", "🏆", centered=True)
             self.win.after(1600, self._walk_out)
         else:
-            self._set_bubble(f"Awesome, {self.data.user_name}!", "Stay healthy & hydrated!", "💧")
+            self._set_bubble(f"Awesome, {self.data.user_name}!", "Stay healthy & hydrated!", "💧", centered=True)
             self.win.after(1100, self._walk_out)
 
     def on_later(self):
@@ -1012,7 +1063,7 @@ class MascotOverlay:
             self.win.after_cancel(self.dismiss_job)
             self.dismiss_job = None
         self.canvas.itemconfigure(self.btn_window, state="hidden")
-        self._set_bubble(f"No worries, {self.data.user_name}!", "I will remind you soon!", "👍")
+        self._set_bubble(f"No worries, {self.data.user_name}!", "I will remind you soon!", "👍", centered=True)
         self.win.after(1000, self._walk_out)
 
     def _walk_out(self):
@@ -1469,9 +1520,9 @@ class WatertimeApp:
 
         self.var_autostart = tk.BooleanVar(value=is_autostart_enabled())
         autostart_text = {
-            "win32": "Start Pivora automatically on PC boot",
+            "win32": "Start Pivora when you sign in to Windows",
             "darwin": "Start Pivora when you log in to your Mac",
-        }.get(sys.platform, "Start Pivora automatically on Linux startup")
+        }.get(sys.platform, "Start Pivora when you sign in to Linux")
         chk_autostart = tk.Checkbutton(
             card_p3, text=autostart_text,
             variable=self.var_autostart, onvalue=True, offvalue=False,
@@ -2065,7 +2116,7 @@ class WatertimeApp:
 
     def run(self):
         if "--minimized" in sys.argv:
-            if IS_MACOS and not self.tray:
+            if not self.tray:
                 self._show_dashboard_internal()
             else:
                 self.hide_dashboard()
