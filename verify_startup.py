@@ -39,7 +39,7 @@ with TemporaryDirectory(prefix="Pivora's startup ") as tmp:
                     target = executable if frozen else executable.with_name("pythonw.exe")
                     if not target.exists():
                         target = executable
-                    assert Path(link["Target"]) == target, link
+                    assert os.path.samefile(link["Target"], target), link
                     assert link["Arguments"] == subprocess.list2cmdline(([] if frozen else [script]) + ["--minimized"]), link
                     assert os.path.samefile(link["Directory"], target.parent), link
                 elif platform == "linux":
