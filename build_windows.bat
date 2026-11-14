@@ -23,7 +23,7 @@ if exist "dist" rmdir /s /q "dist"
 
 :: Compile with PyInstaller
 echo [3/3] Compiling standalone Pivora.exe with Windows metadata...
-pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --version-file "version_info.txt" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
+pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --version-file "version_info.txt" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." --add-data "app_icon.ico;." watertime.py
 
 if %errorlevel% equ 0 (
     if not exist "downloads" mkdir "downloads"
