@@ -1,0 +1,29 @@
+name: Verify v1.0.8 reminder on screen
+on: push
+jobs:
+  reminder:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libayatana-appindicator3-1
+      - run: python -m pip install -r requirements.txt
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a -s '-screen 0 1280x800x24' python verify_reminder.py
+      - if: runner.os != 'Linux'
+        run: python verify_reminder.py
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: reminder-${{ matrix.os }}
+          path: reminder.png
+
