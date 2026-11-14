@@ -12,10 +12,10 @@ Available for **Windows** and **Linux**, with desktop builds for **macOS** inclu
 |---|---|---|
 | **🪟 Windows (10 / 11)** | [📥 **Download Pivora-Windows-x64.exe**](https://github.com/goswamipriyank2076-sketch/pivora/releases/latest/download/Pivora-Windows-x64.exe) | Double-click to run! |
 | **🐧 Linux / Ubuntu** | [📥 **Download Pivora-Linux-x86_64**](https://github.com/goswamipriyank2076-sketch/pivora/releases/latest/download/Pivora-Linux-x86_64) | Mark executable (`chmod +x`) & double-click! |
-| **macOS (Apple Silicon / M-series)** | [Download Apple Silicon ZIP](./downloads/Pivora-macOS-arm64.zip) | Extract the ZIP and open `Pivora.app`. |
-| **macOS (Intel)** | [Download Intel ZIP](./downloads/Pivora-macOS-x86_64.zip) | Extract the ZIP and open `Pivora.app`. |
+| **macOS (Apple Silicon / M-series)** | [Download Apple Silicon ZIP](https://github.com/goswamipriyank2076-sketch/pivora/releases/latest/download/Pivora-macOS-arm64.zip) | Extract the ZIP and open `Pivora.app`. |
+| **macOS (Intel)** | [Download Intel ZIP](https://github.com/goswamipriyank2076-sketch/pivora/releases/latest/download/Pivora-macOS-x86_64.zip) | Extract the ZIP and open `Pivora.app`. |
 
-> 💡 *Files are also available locally in the [`downloads/`](./downloads) folder or on the [GitHub Releases](https://github.com/goswamipriyank2076-sketch/pivora/releases) page.*
+Get the current builds from the links above or the [GitHub Releases](https://github.com/goswamipriyank2076-sketch/pivora/releases) page.
 
 ---
 
