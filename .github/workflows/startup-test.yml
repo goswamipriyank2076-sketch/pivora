@@ -22,3 +22,41 @@ jobs:
       - if: runner.os != 'Linux'
         run: python verify_startup.py
 
+
+      - if: runner.os == 'Windows'
+        name: Verify real packaged app launches from its startup shortcut
+        shell: pwsh
+        run: |
+          pyinstaller --noconsole --onefile --name Pivora-Startup-CI --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $test = @"
+          import os, socket, sys, tempfile, time
+          from pathlib import Path
+          from unittest.mock import patch
+          import watertime as w
+          exe = Path('dist/Pivora-Startup-CI.exe').resolve()
+          with tempfile.TemporaryDirectory(prefix="Pivora's login ") as temp:
+              with patch.dict(os.environ, APPDATA=temp, USERPROFILE=temp), patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'executable', str(exe)):
+                  w.set_autostart(True)
+                  os.startfile(w.windows_startup_shortcut())
+                  deadline = time.monotonic() + 30
+                  while time.monotonic() < deadline:
+                      with socket.socket() as probe:
+                          if probe.connect_ex(('127.0.0.1', 47892)) == 0:
+                              break
+                      time.sleep(0.2)
+                  else:
+                      raise AssertionError('Packaged app did not start from its shortcut')
+                  time.sleep(2)
+                  with socket.create_connection(('127.0.0.1', 47892), timeout=2) as probe:
+                      probe.sendall(b'SHOW')
+                  w.set_autostart(False)
+                  assert not w.windows_startup_shortcut().exists()
+                  print('PASS packaged app starts and stays running via its login shortcut')
+          "@
+          try {
+            $test | python -
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged startup test failed' }
+          } finally {
+            Stop-Process -Name Pivora-Startup-CI -ErrorAction SilentlyContinue
+          }

@@ -41,7 +41,7 @@ with TemporaryDirectory(prefix="Pivora's startup ") as tmp:
                         target = executable
                     assert Path(link["Target"]) == target, link
                     assert link["Arguments"] == subprocess.list2cmdline(([] if frozen else [script]) + ["--minimized"]), link
-                    assert Path(link["Directory"]) == target.parent, link
+                    assert os.path.samefile(link["Directory"], target.parent), link
                 elif platform == "linux":
                     content = w.linux_autostart_path().read_text(encoding="utf-8")
                     assert "Exec=" + w.desktop_exec([str(executable), *([] if frozen else [script]), "--minimized"]) in content
