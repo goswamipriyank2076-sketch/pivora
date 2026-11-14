@@ -460,7 +460,7 @@ class WaterData:
                 raw.setdefault("glasses_count", 0)
                 raw.setdefault("snooze_interval_minutes", DEFAULT_SNOOZE_MINUTES)
                 raw.setdefault("reminder_style", DEFAULT_REMINDER_STYLE)
-                raw.setdefault("setup_completed", False)
+                raw.setdefault("setup_completed", True)
                 raw.setdefault("work_hours_enabled", True)
                 if raw.get("work_start_hour") in (8, None):
                     raw["work_start_hour"] = DEFAULT_WORK_START
@@ -483,7 +483,7 @@ class WaterData:
         goal = prev.get("goal", DEFAULT_GOAL) if prev else DEFAULT_GOAL
         snooze_mins = prev.get("snooze_interval_minutes", DEFAULT_SNOOZE_MINUTES) if prev else DEFAULT_SNOOZE_MINUTES
         reminder_style = prev.get("reminder_style", DEFAULT_REMINDER_STYLE) if prev else DEFAULT_REMINDER_STYLE
-        setup_completed = prev.get("setup_completed", False) if prev else False
+        setup_completed = prev.get("setup_completed", True) if prev else False
         work_enabled = prev.get("work_hours_enabled", True) if prev else True
         work_start = prev.get("work_start_hour", DEFAULT_WORK_START) if prev else DEFAULT_WORK_START
         if work_start == 8:
@@ -2870,7 +2870,7 @@ class WatertimeApp:
             self._show_dashboard_internal()
             if not self.data.setup_completed:
                 self.root.after(300, lambda: self.open_quick_setup(is_first_run=True))
-            elif self.data.count < self.data.goal:
+            if self.data.count < self.data.goal:
                 curr_hour = time.localtime().tm_hour
                 is_active_time = True
                 if self.data.work_hours_enabled:
