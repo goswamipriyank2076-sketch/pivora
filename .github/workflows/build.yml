@@ -61,7 +61,15 @@ jobs:
 
       - name: Build Pivora for Linux with PyInstaller
         run: |
-          pyinstaller --noconsole --onefile --name "Pivora-Linux-x86_64" --add-data "Animated Boy Walking and Drinking Water.gif:." --add-data "gif_frames:gif_frames" --add-data "app_icon.png:." watertime.py
+          # Pillow loads its Tk bridge at runtime.
+          pyinstaller --noconsole --onefile \
+            --name "Pivora-Linux-x86_64" \
+            --hidden-import PIL._tkinter_finder \
+            --hidden-import PIL._imagingtk \
+            --add-data "Animated Boy Walking and Drinking Water.gif:." \
+            --add-data "gif_frames:gif_frames" \
+            --add-data "app_icon.png:." \
+            watertime.py
           chmod +x dist/Pivora-Linux-x86_64
 
       - name: Verify the Linux executable opens its dashboard
