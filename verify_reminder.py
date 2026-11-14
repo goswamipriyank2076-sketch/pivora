@@ -51,23 +51,24 @@ with tempfile.TemporaryDirectory() as temporary:
         x, y = mascot.win.winfo_rootx(), mascot.win.winfo_rooty()
         import sys
         if sys.platform == "darwin":
-            import time
-            deadline = time.monotonic() + 3
-            while True:
-                root.update()
-                shot = ImageGrab.grab().convert("RGB")
-                colors = shot.getcolors(shot.width * shot.height)
-                if any(n > 500 and r < 40 and 15 < g < 65 and g + 12 < b < 100
-                       for n, (r, g, b) in colors) or time.monotonic() >= deadline:
-                    break
-                time.sleep(0.1)
+            import os
+            import Quartz
+            windows = Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
+            assert any(window["kCGWindowOwnerPID"] == os.getpid()
+                       and abs(window["kCGWindowBounds"]["Width"] - mascot.w) <= 2
+                       and abs(window["kCGWindowBounds"]["Height"] - mascot.h) <= 2
+                       for window in windows), "macOS has no on-screen mascot window"
+            photo = str(mascot.bubble_photo)
+            assert tuple(root.tk.call(photo, "get", 30, 10)) == (16, 33, 58)
+            assert not root.tk.getboolean(root.tk.call(photo, "transparency", "get", 30, 10))
+            assert root.tk.getboolean(root.tk.call(photo, "transparency", "get", 0, 0))
         else:
             shot = ImageGrab.grab(bbox=(x - 12, y - 5, x + mascot.w + 12, y + mascot.h + 5)).convert("RGB")
-        shot.save("reminder.png")
-        colors = shot.getcolors(shot.width * shot.height)
-        dark_blue = sum(n for n, (r, g, b) in colors if r < 40 and 15 < g < 65 and g + 12 < b < 100)
-        white = sum(n for n, (r, g, b) in colors if min(r, g, b) > 235)
-        assert dark_blue > 500 and white > 300, (dark_blue, white, sorted(colors, reverse=True)[:8])
+            shot.save("reminder.png")
+            colors = shot.getcolors(shot.width * shot.height)
+            counts = {color: n for n, color in colors}
+            assert counts.get((16, 33, 58), 0) > 500 and counts.get((255, 255, 255), 0) > 300
         click(log)
         assert data.count == 1 and w.WaterData().count == 1
         wait_for(root, lambda: not mascot.is_active or errors, "Reminder did not close after logging")
