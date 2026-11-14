@@ -6,4 +6,5 @@ Icon=pivora
 Terminal=false
 Type=Application
 Categories=Utility;Health;
+StartupWMClass=Pivora
 

@@ -7,6 +7,7 @@ import json
 import math
 import os
 import plistlib
+import shutil
 import sys
 import time
 import random
@@ -54,6 +55,34 @@ DEFAULT_WORK_END         = 18
 TRANS_COLOR              = "#010101"
 IS_MACOS                 = sys.platform == "darwin"
 MACOS_BUNDLE_ID          = "com.pivora.watertime"
+
+
+def install_linux_launcher():
+    """Register the current installation with the user's desktop menu."""
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    icon = data_home / "icons/hicolor/256x256/apps/pivora.png"
+    launcher = data_home / "applications/pivora.desktop"
+    icon.parent.mkdir(parents=True, exist_ok=True)
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(APP_ICON_PATH, icon)
+    arguments = [sys.executable]
+    if not getattr(sys, "frozen", False):
+        arguments.append(str(Path(__file__).resolve()))
+    # Desktop Entry values and Exec arguments have separate escaping rules.
+    quoted = []
+    for argument in arguments:
+        value = argument.replace("%", "%%")
+        for character in ('\\', '"', '`', '$'):
+            value = value.replace(character, '\\' + character)
+        quoted.append('"' + value + '"')
+    command = " ".join(quoted).replace('\\', '\\\\')
+    launcher.write_text(
+        "[Desktop Entry]\nType=Application\nName=Pivora\n"
+        "Comment=Daily water reminder\n"
+        f"Exec={command}\nIcon=pivora\nTerminal=false\n"
+        "Categories=Utility;\nStartupWMClass=Pivora\n",
+        encoding="utf-8",
+    )
 
 def hour_to_12h(h: int) -> str:
     h = int(h) % 24
@@ -982,7 +1011,12 @@ class WatertimeApp:
         self.active_tab = "tracker"
 
         # Root Window
-        self.root = tk.Tk()
+        self.root = tk.Tk(className="Pivora")
+        if sys.platform == "linux":
+            try:
+                install_linux_launcher()
+            except OSError as error:
+                print(f"[Pivora] Could not install desktop icon: {error}")
         self.root.title("Pivora 💧 - Daily Water Companion")
         self.root.resizable(False, False)
         self.root.configure(bg=BG_MAIN)
@@ -1565,11 +1599,7 @@ class WatertimeApp:
             if m:
                 mins = max(1, min(720, int(m.group(0))))
         if mins is not None:
-            self.data.set_interval(mins)
-            self.next_reminder_time = time.time() + (mins * 60)
-            disp = next((k for k, v in self.interval_options.items() if v == mins), f"{mins} mins")
-            self.combo_interval.set(disp)
-            self._update_status_label()
+            self._set_reminder_interval(mins)
 
     def on_goal_selected(self, event=None):
         choice = self.combo_goal.get().strip()
@@ -1827,14 +1857,14 @@ class WatertimeApp:
 
     def on_mascot_closed(self):
         self._refresh_ui_progress()
-        self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
 
-    def set_interval_from_tray(self, mins):
-        self.data.set_interval(mins)
-        self.next_reminder_time = time.time() + (mins * 60)
-        self.root.after(0, self._sync_interval_ui)
+    def _set_reminder_interval(self, mins):
+        # Minimizing the dashboard can commit the interval field via FocusOut.
+        if mins != self.data.interval_minutes:
+            self.data.set_interval(mins)
+            if self.dnd_until <= time.time():
+                self.next_reminder_time = time.time() + (mins * 60)
 
-    def _sync_interval_ui(self):
         current_mins = self.data.interval_minutes
         found_key = next((k for k, v in self.interval_options.items() if v == current_mins), f"{current_mins} mins")
         self.combo_interval.set(found_key)
@@ -1863,7 +1893,7 @@ class WatertimeApp:
 
             def make_interval_item(label, mins):
                 def on_click(icon, item):
-                    self.set_interval_from_tray(mins)
+                    self.root.after(0, self._set_reminder_interval, mins)
                 def is_checked(item):
                     return self.data.interval_minutes == mins
                 return pystray.MenuItem(label, on_click, checked=is_checked)
@@ -1895,15 +1925,15 @@ class WatertimeApp:
             menu = pystray.Menu(
                 pystray.MenuItem("💧 Pivora Active", None, enabled=False),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem(quick_log_label, lambda icon, item: self.quick_log_glass()),
+                pystray.MenuItem(quick_log_label, lambda icon, item: self.root.after(0, self.quick_log_glass)),
                 pystray.MenuItem("🚶 Show Mascot Now", lambda icon, item: self.root.after(0, self.test_mascot_now)),
                 pystray.MenuItem("🔕 Snooze / DND", snooze_menu),
                 pystray.MenuItem("⏱️ Change Interval", interval_menu),
-                pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.show_dashboard(tab="pref")),
-                pystray.MenuItem("🛡️ Auto-Pause in Meetings", lambda icon, item: self.toggle_meeting_mode_tray(), checked=lambda item: self.data.pause_on_meeting, visible=not IS_MACOS),
-                pystray.MenuItem("🔄 Reset Today's Count", lambda icon, item: self.reset_count()),
+                pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.root.after(0, lambda: self.show_dashboard(tab="pref"))),
+                pystray.MenuItem("🛡️ Auto-Pause in Meetings", lambda icon, item: self.root.after(0, self.toggle_meeting_mode_tray), checked=lambda item: self.data.pause_on_meeting, visible=not IS_MACOS),
+                pystray.MenuItem("🔄 Reset Today's Count", lambda icon, item: self.root.after(0, self.reset_count)),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem("❌ Quit Pivora", lambda icon, item: self.quit_app())
+                pystray.MenuItem("❌ Quit Pivora", lambda icon, item: self.root.after(0, self.quit_app))
             )
             self.tray = pystray.Icon("Pivora", icon_img, "Pivora 💧", menu)
             if IS_MACOS:
@@ -1925,7 +1955,7 @@ class WatertimeApp:
         curr_hour = time.localtime().tm_hour
 
         # Check Snooze
-        if self.dnd_until > now:
+        if self.dnd_until:
             if now < self.dnd_until:
                 self._update_status_label()
                 self.root.after(1000, self._check_timer_loop)

@@ -99,7 +99,13 @@ jobs:
             ./dist/Pivora-Linux-x86_64 &
             app_pid=$!
             trap "kill $app_pid 2>/dev/null || true; wait $app_pid || true" EXIT
-            timeout 30s xdotool search --sync --onlyvisible --name "^Pivora.*Daily Water Companion$"
+            dashboard=$(timeout 30s xdotool search --sync --onlyvisible --name "^Pivora.*Daily Water Companion$")
+            test -s "$HOME/.local/share/icons/hicolor/256x256/apps/pivora.png"
+            cmp app_icon.png "$HOME/.local/share/icons/hicolor/256x256/apps/pivora.png"
+            test -s "$HOME/.local/share/applications/pivora.desktop"
+            grep -Fx "StartupWMClass=Pivora" "$HOME/.local/share/applications/pivora.desktop"
+            xprop -id "$dashboard" WM_CLASS | grep Pivora
+            xprop -id "$dashboard" _NET_WM_ICON | grep "Icon"
             mascot=$(timeout 15s xdotool search --sync --onlyvisible --name "^Pivora Mascot$")
             for attempt in {1..20}; do
               if xwininfo -id "$mascot" -shape | grep "Window shape extents:"; then
