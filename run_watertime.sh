@@ -12,9 +12,9 @@ else
 fi
 
 # Check dependencies
-$PY -c "import pystray, PIL" 2>/dev/null
+$PY -c "import pystray, PIL, Xlib" 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "[!] Installing dependencies (pystray, Pillow)..."
+    echo "[!] Installing Python dependencies..."
     pip install -r requirements.txt 2>/dev/null || pip3 install -r requirements.txt
 fi
 

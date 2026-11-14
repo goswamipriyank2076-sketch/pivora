@@ -1,4 +1,4 @@
-name: Build Cross-Platform Binaries (Windows & Linux)
+name: Build Cross-Platform Binaries (Windows, Linux & macOS)
 
 on:
   push:
@@ -29,6 +29,25 @@ jobs:
         run: |
           pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --version-file "version_info.txt" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
 
+      - name: Verify the Windows executable opens its dashboard
+        shell: pwsh
+        run: |
+          [System.Diagnostics.Process]::Start(
+            (Resolve-Path "./dist/Pivora-Windows-x64.exe").Path
+          ) | Out-Null
+          try {
+            $deadline = (Get-Date).AddSeconds(35)
+            do {
+              $dashboard = Get-Process -Name Pivora-Windows-x64 -ErrorAction SilentlyContinue |
+                Where-Object { $_.MainWindowTitle -like "Pivora*Daily Water Companion" }
+              if ($dashboard) { break }
+              Start-Sleep -Milliseconds 250
+            } while ((Get-Date) -lt $deadline)
+            if (!$dashboard) { throw "Pivora dashboard did not open" }
+          } finally {
+            Stop-Process -Name Pivora-Windows-x64 -ErrorAction SilentlyContinue
+          }
+
       - name: Upload Windows Executable
         uses: actions/upload-artifact@v6
         with:
@@ -52,7 +71,7 @@ jobs:
       - name: Install system tray and launch test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libayatana-appindicator3-1 xvfb xauth xdotool
+          sudo apt-get install -y libayatana-appindicator3-1 xvfb xauth xdotool x11-utils
 
       - name: Install Python dependencies
         run: |
@@ -72,13 +91,24 @@ jobs:
             watertime.py
           chmod +x dist/Pivora-Linux-x86_64
 
-      - name: Verify the Linux executable opens its dashboard
+      - name: Verify the dashboard and transparent mascot on Linux
         run: |
           xvfb-run -a bash -e -c '
+            export HOME=$(mktemp -d)
+            python -c "from datetime import date; import json; from pathlib import Path; (Path.home() / \".watertime_data.json\").write_text(json.dumps(dict(date=str(date.today()), work_hours_enabled=False)))"
             ./dist/Pivora-Linux-x86_64 &
             app_pid=$!
             trap "kill $app_pid 2>/dev/null || true; wait $app_pid || true" EXIT
             timeout 30s xdotool search --sync --onlyvisible --name "^Pivora.*Daily Water Companion$"
+            mascot=$(timeout 15s xdotool search --sync --onlyvisible --name "^Pivora Mascot$")
+            for attempt in {1..20}; do
+              if xwininfo -id "$mascot" -shape | grep "Window shape extents:"; then
+                exit 0
+              fi
+              sleep 0.1
+            done
+            echo "The mascot window has no transparency mask" >&2
+            exit 1
           '
 
       - name: Upload Linux Binary
@@ -87,9 +117,82 @@ jobs:
           name: Pivora-Linux-x86_64
           path: dist/Pivora-Linux-x86_64
 
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Build Pivora.app
+        env:
+          PYTHON: python
+        run: bash build_macos.sh
+
+      - name: Verify the archived app opens its dashboard
+        env:
+          MACOS_ARCH: ${{ matrix.arch }}
+        run: |
+          smoke_dir="$(mktemp -d)"
+          ditto -x -k "dist/Pivora-macOS-${MACOS_ARCH}.zip" "$smoke_dir"
+          app="$smoke_dir/Pivora.app"
+          executable="$app/Contents/MacOS/Pivora"
+          test "$(lipo -archs "$executable")" = "$MACOS_ARCH"
+          codesign --verify --deep --strict "$app"
+          "$executable" &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" || true' EXIT
+          cat > "$smoke_dir/check-window.swift" <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+
+          let pid = Int(CommandLine.arguments[1])!
+          let deadline = Date().addingTimeInterval(30)
+          repeat {
+              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
+                  as? [[String: Any]] ?? []
+              if windows.contains(where: { window in
+                  let bounds = window[kCGWindowBounds as String] as? [String: Double]
+                  return window[kCGWindowOwnerPID as String] as? Int == pid
+                      && window[kCGWindowLayer as String] as? Int == 0
+                      && (bounds?["Width"] ?? 0) >= 490
+                      && (bounds?["Height"] ?? 0) >= 540
+              }) {
+                  exit(EXIT_SUCCESS)
+              }
+              Thread.sleep(forTimeInterval: 0.25)
+          } while Date() < deadline
+          FileHandle.standardError.write(Data("Pivora dashboard did not open\n".utf8))
+          exit(EXIT_FAILURE)
+          SWIFT
+          swift "$smoke_dir/check-window.swift" "$app_pid"
+
+      - name: Upload macOS archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: Pivora-macOS-${{ matrix.arch }}
+          path: dist/Pivora-macOS-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
   create-release:
     name: Publish Version Release
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, build-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -108,8 +211,11 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          fail_on_unmatched_files: true
           files: |
             release-artifacts/Pivora-Windows-x64/Pivora-Windows-x64.exe
             release-artifacts/Pivora-Linux-x86_64/Pivora-Linux-x86_64
+            release-artifacts/Pivora-macOS-arm64/Pivora-macOS-arm64.zip
+            release-artifacts/Pivora-macOS-x86_64/Pivora-macOS-x86_64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

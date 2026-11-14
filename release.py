@@ -114,7 +114,7 @@ def main():
 
     print("=" * 60)
     print(f"  🎉 SUCCESS! {tag_name} has been published!")
-    print(f"  GitHub Actions is now compiling the Windows and Linux binaries for {tag_name}.")
+    print(f"  GitHub Actions is now building Windows, Linux, and macOS packages for {tag_name}.")
     print("  You can view this version release at:")
     print(f"  👉 https://github.com/goswamipriyank2076-sketch/pivora/releases/tag/{tag_name}")
     print("=" * 60)
