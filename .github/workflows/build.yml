@@ -1,115 +1,79 @@
-name: Build Cross-Platform Binaries (Windows & Linux)
-
+name: Build Mac downloads
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "v*" ]
-  workflow_dispatch:
-
+    branches: [ "codex/macos-downloads-20261114134846" ]
 jobs:
-  build-windows:
-    name: Build Windows (.exe)
-    runs-on: windows-latest
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt
 
-      - name: Build Pivora.exe with PyInstaller
-        run: |
-          pyinstaller --noconsole --onefile --name "Pivora-Windows-x64" --icon "app_icon.ico" --version-file "version_info.txt" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
-
-      - name: Upload Windows Executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: Pivora-Windows-x64
-          path: dist/Pivora-Windows-x64.exe
-
-  build-linux:
-    name: Build Linux Executable
-    # PyInstaller bundles Python but uses the target system's glibc.
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - name: Install system tray and launch test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libayatana-appindicator3-1 xvfb xauth xdotool
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Build Pivora for Linux with PyInstaller
-        run: |
-          # Pillow loads its Tk bridge at runtime.
-          pyinstaller --noconsole --onefile \
-            --name "Pivora-Linux-x86_64" \
-            --hidden-import PIL._tkinter_finder \
-            --hidden-import PIL._imagingtk \
-            --add-data "Animated Boy Walking and Drinking Water.gif:." \
-            --add-data "gif_frames:gif_frames" \
-            --add-data "app_icon.png:." \
-            watertime.py
-          chmod +x dist/Pivora-Linux-x86_64
-
-      - name: Verify the Linux executable opens its dashboard
-        run: |
-          xvfb-run -a bash -e -c '
-            ./dist/Pivora-Linux-x86_64 &
-            app_pid=$!
-            trap "kill $app_pid 2>/dev/null || true; wait $app_pid || true" EXIT
-            timeout 30s xdotool search --sync --onlyvisible --name "^Pivora.*Daily Water Companion$"
-          '
-
-      - name: Upload Linux Binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: Pivora-Linux-x86_64
-          path: dist/Pivora-Linux-x86_64
-
-  create-release:
-    name: Publish Version Release
-    needs: [build-windows, build-linux]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-
-      - name: Create Versioned GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "Pivora 💧 ${{ github.ref_name }}"
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-          files: |
-            release-artifacts/Pivora-Windows-x64/Pivora-Windows-x64.exe
-            release-artifacts/Pivora-Linux-x86_64/Pivora-Linux-x86_64
+      - name: Build Pivora.app
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHON: python
+        run: bash build_macos.sh
+
+      - name: Verify the archived app opens its dashboard
+        env:
+          MACOS_ARCH: ${{ matrix.arch }}
+        run: |
+          smoke_dir="$(mktemp -d)"
+          ditto -x -k "dist/Pivora-macOS-${MACOS_ARCH}.zip" "$smoke_dir"
+          app="$smoke_dir/Pivora.app"
+          executable="$app/Contents/MacOS/Pivora"
+          test "$(lipo -archs "$executable")" = "$MACOS_ARCH"
+          codesign --verify --deep --strict "$app"
+          "$executable" &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" || true' EXIT
+          cat > "$smoke_dir/check-window.swift" <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+
+          let pid = Int(CommandLine.arguments[1])!
+          let deadline = Date().addingTimeInterval(30)
+          repeat {
+              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
+                  as? [[String: Any]] ?? []
+              if windows.contains(where: { window in
+                  let bounds = window[kCGWindowBounds as String] as? [String: Double]
+                  return window[kCGWindowOwnerPID as String] as? Int == pid
+                      && window[kCGWindowLayer as String] as? Int == 0
+                      && (bounds?["Width"] ?? 0) >= 490
+                      && (bounds?["Height"] ?? 0) >= 540
+              }) {
+                  exit(EXIT_SUCCESS)
+              }
+              Thread.sleep(forTimeInterval: 0.25)
+          } while Date() < deadline
+          FileHandle.standardError.write(Data("Pivora dashboard did not open\n".utf8))
+          exit(EXIT_FAILURE)
+          SWIFT
+          swift "$smoke_dir/check-window.swift" "$app_pid"
+
+      - name: Upload macOS archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: Pivora-macOS-${{ matrix.arch }}
+          path: dist/Pivora-macOS-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+

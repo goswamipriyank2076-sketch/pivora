@@ -6,14 +6,14 @@ Handcrafted Consumer Edition featuring the 3D Boy Mascot, Interactive Glasses, a
 import json
 import math
 import os
+import plistlib
 import sys
 import time
 import random
 import re
 import threading
-import subprocess
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -52,6 +52,8 @@ DEFAULT_GOAL             = 8
 DEFAULT_WORK_START       = 9
 DEFAULT_WORK_END         = 18
 TRANS_COLOR              = "#010101"
+IS_MACOS                 = sys.platform == "darwin"
+MACOS_BUNDLE_ID          = "com.pivora.watertime"
 
 def hour_to_12h(h: int) -> str:
     h = int(h) % 24
@@ -213,6 +215,9 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
                 draw.text((start_x + l2_w + space, 34), emoji_char, font=emoji_font, fill=(0, 0, 0, 255), embedded_color=True)
             except Exception:
                 draw.text((start_x + l2_w + space, 34), emoji_char, font=emoji_font, fill=(1, 87, 155, 255))
+
+    if sys.platform != "win32":
+        return raw
 
     final_img = Image.new("RGB", (w, h), (1, 1, 1))
     final_img.paste(raw, (0, 0), raw)
@@ -428,9 +433,15 @@ class WaterData:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Auto-Start Helper (Windows & Linux)
+# Auto-Start Helpers
 # ─────────────────────────────────────────────────────────────────
+def macos_launch_agent_path():
+    return Path.home() / "Library" / "LaunchAgents" / f"{MACOS_BUNDLE_ID}.plist"
+
+
 def is_autostart_enabled():
+    if IS_MACOS:
+        return macos_launch_agent_path().exists()
     if sys.platform == "win32":
         startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs/Startup"
         return (startup_dir / "Watertime.lnk").exists()
@@ -439,7 +450,26 @@ def is_autostart_enabled():
         return (autostart_dir / "watertime.desktop").exists()
 
 def set_autostart(enable: bool):
-    if sys.platform == "win32":
+    if IS_MACOS:
+        agent_path = macos_launch_agent_path()
+        if enable:
+            if getattr(sys, "frozen", False):
+                bundle = Path(sys.executable).parent.parent.parent
+                command = ["/usr/bin/open", "-a", str(bundle), "--args", "--minimized"]
+            else:
+                command = [sys.executable, str(Path(__file__).resolve()), "--minimized"]
+            agent_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = agent_path.with_suffix(".tmp")
+            temp_path.write_bytes(plistlib.dumps({
+                "Label": MACOS_BUNDLE_ID,
+                "ProgramArguments": command,
+                "RunAtLoad": True,
+                "LimitLoadToSessionType": "Aqua",
+            }))
+            temp_path.replace(agent_path)
+        elif agent_path.exists():
+            agent_path.unlink()
+    elif sys.platform == "win32":
         startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs/Startup"
         shortcut_file = startup_dir / "Watertime.lnk"
         if enable:
@@ -586,6 +616,18 @@ def create_tray_icon_image(count=0, goal=8, size=64):
 # ─────────────────────────────────────────────────────────────────
 # Transparent Walking Mascot Overlay with Speech Bubble
 # ─────────────────────────────────────────────────────────────────
+def alpha_rectangles(image):
+    """Convert opaque runs in each image row into X11 shape rectangles."""
+    width, height = image.size
+    alpha = image.getchannel("A").tobytes()
+    rectangles = []
+    for y in range(height):
+        row = alpha[y * width:(y + 1) * width]
+        for run in re.finditer(rb"[\x80-\xff]+", row):
+            rectangles.append((run.start(), y, len(run.group()), 1))
+    return rectangles
+
+
 def load_gif_frames(master, target_h=320):
     FRAMES_DIR.mkdir(parents=True, exist_ok=True)
     frames_paths = sorted(list(FRAMES_DIR.glob("frame_*.png")))
@@ -610,6 +652,7 @@ def load_gif_frames(master, target_h=320):
         frames_paths = sorted(list(FRAMES_DIR.glob("frame_*.png")))
 
     tk_frames = []
+    frame_shapes = []
     for p in frames_paths:
         try:
             im = Image.open(p).convert("RGBA")
@@ -623,9 +666,11 @@ def load_gif_frames(master, target_h=320):
             else:
                 clean_rgba = Image.merge("RGBA", (r, g, b, mask))
                 tk_frames.append(ImageTk.PhotoImage(clean_rgba, master=master))
+                if sys.platform == "linux":
+                    frame_shapes.append(alpha_rectangles(clean_rgba))
         except Exception as e:
             print(f"[Pivora] Error loading frame {p}: {e}")
-    return tk_frames
+    return tk_frames, frame_shapes
 
 
 class MascotOverlay:
@@ -639,6 +684,9 @@ class MascotOverlay:
         self.data = data
         self.on_close = on_close
         self.is_active = False
+        self.x11_display = None
+        self.x11_frame = None
+        self.bubble_shape = []
 
         self.win = tk.Toplevel(master)
         self.win.overrideredirect(True)
@@ -651,18 +699,31 @@ class MascotOverlay:
             except Exception:
                 pass
             border_thickness = 0
+        elif IS_MACOS:
+            overlay_bg = "systemTransparent"
+            self.win.wm_attributes("-transparent", True)
+            border_thickness = 0
         else:
-            # On Linux / X11 / Wayland, use polished card aesthetic to avoid any raw black boxes
+            # Keep a readable fallback if the display does not support shaped windows.
             overlay_bg = "#FFFFFF"
-            border_thickness = 1
+            border_thickness = 0
             try:
                 self.win.wm_attributes("-type", "notification")
             except Exception:
                 pass
-            try:
-                self.win.wm_attributes("-alpha", 0.98)
-            except Exception:
-                pass
+            if sys.platform == "linux" and self.win.tk.call("tk", "windowingsystem") == "x11":
+                from Xlib import display, error
+
+                self.win.title("Pivora Mascot")
+                try:
+                    connection = display.Display(self.win.winfo_screen())
+                    if connection.has_extension("SHAPE"):
+                        self.x11_display = connection
+                        self.win.bind("<Map>", self._map_x11_shape)
+                    else:
+                        connection.close()
+                except error.DisplayError:
+                    pass
 
         self.win.configure(bg=overlay_bg)
 
@@ -685,7 +746,7 @@ class MascotOverlay:
         )
         self.canvas.pack(fill="both", expand=True)
 
-        self.frames = load_gif_frames(self.win, target_h=320)
+        self.frames, self.frame_shapes = load_gif_frames(self.win, target_h=320)
         self.canvas.frames_ref = self.frames
         self.cur_frame = 0
 
@@ -731,6 +792,51 @@ class MascotOverlay:
         img = render_speech_bubble_image(title, subtitle, emoji, w=310, h=78)
         self.bubble_photo = ImageTk.PhotoImage(img, master=self.win)
         self.canvas.itemconfig(self.bubble_item, image=self.bubble_photo)
+        if self.x11_display:
+            self.bubble_shape = alpha_rectangles(img)
+            self._update_x11_shape()
+
+    def _map_x11_shape(self, event):
+        if event.widget != self.win:
+            return
+        # Tk draws in a child window inside an X11 wrapper. Shape the wrapper.
+        child = self.x11_display.create_resource_object("window", self.win.winfo_id())
+        tree = child.query_tree()
+        self.x11_frame = child if tree.parent == tree.root else tree.parent
+        self._update_x11_shape()
+
+    def _update_x11_shape(self):
+        if not self.x11_frame or not self.frame_shapes:
+            return
+        from Xlib import X
+        from Xlib.ext import shape
+
+        left, top, _, _ = self.canvas.bbox(self.char_id)
+        rectangles = [
+            (left + x, top + y, width, height)
+            for x, y, width, height in self.frame_shapes[self.cur_frame]
+        ]
+        if self.canvas.itemcget(self.bubble_item, "state") == "normal":
+            left, top, _, _ = self.canvas.bbox(self.bubble_item)
+            rectangles.extend(
+                (left + x, top + y, width, height)
+                for x, y, width, height in self.bubble_shape
+            )
+        if self.canvas.itemcget(self.btn_window, "state") == "normal":
+            left, top, right, bottom = self.canvas.bbox(self.btn_window)
+            rectangles.append((left, top, right - left, bottom - top))
+
+        self.x11_frame.shape_rectangles(shape.SO.Set, shape.SK.Bounding, X.Unsorted, 0, 0, rectangles)
+        self.x11_display.flush()
+
+    def _show_frame(self, frame_index):
+        self.cur_frame = frame_index
+        self.canvas.itemconfig(self.char_id, image=self.frames[frame_index])
+        self._update_x11_shape()
+
+    def _position_character(self, y):
+        self.canvas.coords(self.char_id, self.w // 2, y)
+        self._update_x11_shape()
 
     def trigger(self, force=False):
         if self.is_active:
@@ -745,8 +851,8 @@ class MascotOverlay:
         self.canvas.itemconfigure(self.btn_window, state="hidden")
 
         if self.frames and self.char_id:
-            self.canvas.itemconfig(self.char_id, image=self.frames[0])
-            self.canvas.coords(self.char_id, self.w // 2, 285)
+            self._show_frame(0)
+            self._position_character(285)
 
         self.curr_x = self.sw
         self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
@@ -763,7 +869,7 @@ class MascotOverlay:
         f_idx = self.WALK_FRAMES[self.step_idx % len(self.WALK_FRAMES)]
         self.step_idx += 1
         if self.char_id and f_idx < len(self.frames):
-            self.canvas.itemconfig(self.char_id, image=self.frames[f_idx])
+            self._show_frame(f_idx)
         self.anim_job = self.win.after(150, self._cycle_walk)
 
     def _walk_in_step(self):
@@ -775,13 +881,13 @@ class MascotOverlay:
             self.total_ticks += 1
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
             if self.char_id:
-                self.canvas.coords(self.char_id, self.w // 2, 285 + bob)
+                self._position_character(285 + bob)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
             self.move_job = self.win.after(22, self._walk_in_step)
         else:
             self.curr_x = self.target_x
             if self.char_id:
-                self.canvas.coords(self.char_id, self.w // 2, 285)
+                self._position_character(285)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
 
             if self.anim_job:
@@ -796,18 +902,19 @@ class MascotOverlay:
         if drink_idx < len(self.DRINK_FRAMES):
             f_idx = self.DRINK_FRAMES[drink_idx]
             if self.char_id and f_idx < len(self.frames):
-                self.canvas.itemconfig(self.char_id, image=self.frames[f_idx])
+                self._show_frame(f_idx)
             delay = 240 if f_idx in (5, 6) else 150
             self.anim_job = self.win.after(delay, lambda: self._play_drink_at_center(drink_idx + 1))
         else:
             if self.char_id and len(self.frames) > 0:
-                self.canvas.itemconfig(self.char_id, image=self.frames[0])
+                self._show_frame(0)
 
             t, s, e = random.choice(MASCOT_QUOTES)
             self._set_bubble(t.format(name=self.data.user_name), s.format(name=self.data.user_name), e)
 
             self.canvas.itemconfigure(self.bubble_item, state="normal")
             self.canvas.itemconfigure(self.btn_window, state="normal")
+            self._update_x11_shape()
 
             self.dismiss_job = self.win.after(20000, self.on_later)
 
@@ -851,7 +958,7 @@ class MascotOverlay:
             self.total_ticks += 1
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
             if self.char_id:
-                self.canvas.coords(self.char_id, self.w // 2, 285 + bob)
+                self._position_character(285 + bob)
             self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
             self.move_job = self.win.after(22, self._walk_out_step)
         else:
@@ -879,7 +986,10 @@ class WatertimeApp:
         self.root.title("Pivora 💧 - Daily Water Companion")
         self.root.resizable(False, False)
         self.root.configure(bg=BG_MAIN)
-        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_dashboard if IS_MACOS else self.quit_app)
+        if IS_MACOS:
+            self.root.createcommand("::tk::mac::ReopenApplication", self._show_dashboard_internal)
+            self.root.createcommand("::tk::mac::Quit", self.quit_app)
 
         # Set Application Taskbar & Window Icon (replaces default Python icon)
         # Must call SetCurrentProcessExplicitAppUserModelID BEFORE creating any window/tray
@@ -1250,8 +1360,12 @@ class WatertimeApp:
 
         # Meeting Mode & Screen Share Auto-Pause
         self.var_meeting_mode = tk.BooleanVar(value=self.data.pause_on_meeting)
+        meeting_text = (
+            "Auto-pause during meetings (Windows only)" if IS_MACOS
+            else "Auto-pause mascot during meetings & screen share"
+        )
         chk_meeting = tk.Checkbutton(
-            card_p2, text="Auto-pause mascot during meetings & screen share",
+            card_p2, text=meeting_text,
             variable=self.var_meeting_mode,
             font=("Segoe UI", 9, "bold"), bg=CARD_BG, fg=TEXT_DARK,
             activebackground=CARD_BG, selectcolor="#F0F9FF",
@@ -1259,10 +1373,13 @@ class WatertimeApp:
         )
         chk_meeting.pack(anchor="w", pady=(4, 0))
 
-        tk.Label(
-            card_p2, text="🛡️ Auto-pauses during Zoom, Teams, Meet, or presentations.",
-            font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, justify="left"
-        ).pack(anchor="w", pady=(1, 0))
+        if IS_MACOS:
+            chk_meeting.configure(state="disabled")
+        else:
+            tk.Label(
+                card_p2, text="🛡️ Auto-pauses during Zoom, Teams, Meet, or presentations.",
+                font=("Segoe UI", 8, "italic"), fg=TEXT_MUTED, bg=CARD_BG, justify="left"
+            ).pack(anchor="w", pady=(1, 0))
 
         # Card 3: System & Quick Controls
         card_p3 = tk.Frame(pref_inner, bg=CARD_BG, padx=16, pady=8, highlightthickness=1, highlightbackground=CARD_BORDER)
@@ -1271,7 +1388,10 @@ class WatertimeApp:
         tk.Label(card_p3, text="⚡  SYSTEM & SHORTCUTS", font=("Segoe UI", 8, "bold"), fg=TEXT_PRIMARY, bg=CARD_BG).pack(anchor="w", pady=(0, 4))
 
         self.var_autostart = tk.BooleanVar(value=is_autostart_enabled())
-        autostart_text = "Start Pivora automatically on PC boot" if sys.platform == "win32" else "Start Pivora automatically on Linux startup"
+        autostart_text = {
+            "win32": "Start Pivora automatically on PC boot",
+            "darwin": "Start Pivora when you log in to your Mac",
+        }.get(sys.platform, "Start Pivora automatically on Linux startup")
         chk_autostart = tk.Checkbutton(
             card_p3, text=autostart_text,
             variable=self.var_autostart, onvalue=True, offvalue=False,
@@ -1281,8 +1401,12 @@ class WatertimeApp:
         )
         chk_autostart.pack(anchor="w")
 
+        shortcut_text = (
+            "Log a glass from the Pivora menu bar icon" if IS_MACOS
+            else "⌨️ Hotkey: Ctrl + Alt + W  —  Log a glass from anywhere"
+        )
         tk.Label(
-            card_p3, text="⌨️ Hotkey: Ctrl + Alt + W  —  Log a glass from anywhere",
+            card_p3, text=shortcut_text,
             font=("Segoe UI", 8), fg=TEXT_MUTED, bg=CARD_BG
         ).pack(anchor="w", pady=(4, 2))
 
@@ -1494,7 +1618,11 @@ class WatertimeApp:
             pass
 
     def toggle_autostart(self):
-        set_autostart(self.var_autostart.get())
+        try:
+            set_autostart(self.var_autostart.get())
+        except OSError as error:
+            self.var_autostart.set(is_autostart_enabled())
+            messagebox.showerror("Pivora", f"Could not update automatic startup.\n{error}", parent=self.root)
 
     def set_snooze(self, minutes: int):
         if minutes == 0:
@@ -1763,21 +1891,27 @@ class WatertimeApp:
                 make_snooze_item("▶️ Resume Reminders", 0),
             )
 
+            quick_log_label = "➕ Quick Log 1 Glass" if IS_MACOS else "➕ Quick Log 1 Glass (Ctrl+Alt+W)"
             menu = pystray.Menu(
                 pystray.MenuItem("💧 Pivora Active", None, enabled=False),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem("➕ Quick Log 1 Glass (Ctrl+Alt+W)", lambda icon, item: self.quick_log_glass()),
+                pystray.MenuItem(quick_log_label, lambda icon, item: self.quick_log_glass()),
                 pystray.MenuItem("🚶 Show Mascot Now", lambda icon, item: self.root.after(0, self.test_mascot_now)),
                 pystray.MenuItem("🔕 Snooze / DND", snooze_menu),
                 pystray.MenuItem("⏱️ Change Interval", interval_menu),
                 pystray.MenuItem("⚙️ Open Settings", lambda icon, item: self.show_dashboard(tab="pref")),
-                pystray.MenuItem("🛡️ Auto-Pause in Meetings", lambda icon, item: self.toggle_meeting_mode_tray(), checked=lambda item: self.data.pause_on_meeting),
+                pystray.MenuItem("🛡️ Auto-Pause in Meetings", lambda icon, item: self.toggle_meeting_mode_tray(), checked=lambda item: self.data.pause_on_meeting, visible=not IS_MACOS),
                 pystray.MenuItem("🔄 Reset Today's Count", lambda icon, item: self.reset_count()),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("❌ Quit Pivora", lambda icon, item: self.quit_app())
             )
             self.tray = pystray.Icon("Pivora", icon_img, "Pivora 💧", menu)
-            threading.Thread(target=self.tray.run, daemon=True).start()
+            if IS_MACOS:
+                # Tk's Aqua event loop services the menu bar. Keep Cocoa calls on the main thread.
+                self.tray.run_detached(setup=lambda icon: None)
+                self.tray.visible = True
+            else:
+                threading.Thread(target=self.tray.run, daemon=True).start()
         except Exception as e:
             print(f"[Pivora] System tray error: {e}")
             self.tray = None
@@ -1855,7 +1989,10 @@ class WatertimeApp:
 
     def run(self):
         if "--minimized" in sys.argv:
-            self.hide_dashboard()
+            if IS_MACOS and not self.tray:
+                self._show_dashboard_internal()
+            else:
+                self.hide_dashboard()
         else:
             self._show_dashboard_internal()
             # Do NOT trigger mascot if today's goal is already achieved!
