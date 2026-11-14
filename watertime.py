@@ -57,6 +57,40 @@ IS_MACOS                 = sys.platform == "darwin"
 MACOS_BUNDLE_ID          = "com.pivora.watertime"
 
 
+def screen_work_area(window):
+    """Return the work area of the Windows monitor under the pointer."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class MonitorInfo(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD),
+                ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT),
+                ("dwFlags", wintypes.DWORD),
+            ]
+
+        user32 = ctypes.windll.user32
+        monitor_from_point = user32.MonitorFromPoint
+        monitor_from_point.argtypes = (wintypes.POINT, wintypes.DWORD)
+        monitor_from_point.restype = wintypes.HANDLE
+        get_monitor_info = user32.GetMonitorInfoW
+        get_monitor_info.argtypes = (wintypes.HANDLE, ctypes.POINTER(MonitorInfo))
+        get_monitor_info.restype = wintypes.BOOL
+
+        pointer = wintypes.POINT()
+        if user32.GetCursorPos(ctypes.byref(pointer)):
+            monitor = monitor_from_point(pointer, 2)  # MONITOR_DEFAULTTONEAREST
+            info = MonitorInfo()
+            info.cbSize = ctypes.sizeof(info)
+            if monitor and get_monitor_info(monitor, ctypes.byref(info)):
+                work = info.rcWork
+                return work.left, work.top, work.right, work.bottom
+
+    return 0, 0, window.winfo_screenwidth(), window.winfo_screenheight()
+
+
 def install_linux_launcher():
     """Register the current installation with the user's desktop menu."""
     data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
@@ -127,6 +161,10 @@ OCEAN_BLUE       = "#0284C7"   # Vibrant Water Blue
 OCEAN_DARK       = "#0369A1"   # Deep Ocean Blue
 EMERALD_GREEN    = "#10B981"   # Target Completed
 AMBER_GOLD       = "#F59E0B"   # Warm Streak Gold
+REMINDER_BG      = "#10213A"
+REMINDER_BORDER  = "#7DD3FC"
+REMINDER_TEXT    = "#FFFFFF"
+REMINDER_MUTED   = "#DCEAF7"
 
 MASCOT_QUOTES = [
     ("Hey {name}!", "Time for a refreshing sip!", "💧"),
@@ -198,7 +236,7 @@ def load_dashboard_mascot_image(target_h=150):
         return None
 
 def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str = "", w: int = 310, h: int = 78):
-    """Render a crisp antialiased speech bubble with full-color native Windows emojis."""
+    """Draw the reminder with a dark surface and a bright outline."""
     raw = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(raw)
 
@@ -207,43 +245,58 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
     r = 16
 
     draw.rounded_rectangle([bx1 + 1, by1 + 2, bx2 + 1, by2 + 2], radius=r, fill=(0, 0, 0, 25))
-    draw.rounded_rectangle([bx1, by1, bx2, by2], radius=r, fill=(255, 255, 255, 255), outline=(2, 136, 209, 255), width=2)
+    draw.rounded_rectangle([bx1, by1, bx2, by2], radius=r, fill=REMINDER_BG, outline=REMINDER_BORDER, width=2)
 
     cx = w // 2
     tail_pts = [(cx - 9, by2 - 1), (cx + 9, by2 - 1), (cx, by2 + 11)]
-    draw.polygon(tail_pts, fill=(255, 255, 255, 255), outline=(2, 136, 209, 255))
-    draw.line([(cx - 7, by2 - 1), (cx + 7, by2 - 1)], fill=(255, 255, 255, 255), width=3)
+    draw.polygon(tail_pts, fill=REMINDER_BG, outline=REMINDER_BORDER)
+    draw.line([(cx - 7, by2 - 1), (cx + 7, by2 - 1)], fill=REMINDER_BG, width=3)
 
     font_segoe = "C:/Windows/Fonts/segoeuib.ttf" if os.path.exists("C:/Windows/Fonts/segoeuib.ttf") else "arial.ttf"
     font_emoji = "C:/Windows/Fonts/seguiemj.ttf" if os.path.exists("C:/Windows/Fonts/seguiemj.ttf") else font_segoe
 
     try:
+        title_font = ImageFont.truetype(font_segoe, 16)
         text_font = ImageFont.truetype(font_segoe, 13)
+    except OSError:
+        title_font = ImageFont.load_default(size=16)
+        text_font = ImageFont.load_default(size=13)
+    try:
         emoji_font = ImageFont.truetype(font_emoji, 17)
-    except Exception:
-        text_font = ImageFont.load_default()
-        emoji_font = text_font
+    except OSError:
+        emoji_font = None
 
-    t1_box = draw.textbbox((0, 0), title, font=text_font)
-    t1_w = t1_box[2] - t1_box[0]
-    draw.text(((w - t1_w) // 2, 13), title, font=text_font, fill=(1, 87, 155, 255))
+    def fit_line(line, font, width):
+        line = " ".join(line.split())
+        if draw.textlength(line, font=font) <= width:
+            return line
+        shortened = []
+        used = draw.textlength("…", font=font)
+        for letter in line:
+            used += draw.textlength(letter, font=font)
+            if used > width:
+                break
+            shortened.append(letter)
+        return "".join(shortened).rstrip() + "…"
+
+    line_width = bx2 - bx1 - 32
+    title = fit_line(title, title_font, line_width)
+    draw.text((cx, 23), title, font=title_font, fill=REMINDER_TEXT, anchor="mm")
 
     if subtitle:
-        l2_box = draw.textbbox((0, 0), subtitle, font=text_font)
-        l2_w = l2_box[2] - l2_box[0]
-        em_box = draw.textbbox((0, 0), emoji_char, font=emoji_font) if emoji_char else (0, 0, 0, 0)
-        em_w = em_box[2] - em_box[0] if emoji_char else 0
-
-        space = 6 if emoji_char else 0
-        total_w = l2_w + em_w + space
+        emoji_width = draw.textlength(emoji_char, font=emoji_font) + 6 if emoji_char and emoji_font else 0
+        subtitle = fit_line(subtitle, text_font, line_width - emoji_width)
+        subtitle_width = draw.textlength(subtitle, font=text_font)
+        total_w = subtitle_width + emoji_width
         start_x = (w - total_w) // 2
 
-        draw.text((start_x, 36), subtitle, font=text_font, fill=(1, 87, 155, 255))
-        if emoji_char:
+        draw.text((start_x, 46), subtitle, font=text_font, fill=REMINDER_MUTED, anchor="lm")
+        if emoji_width:
+            emoji_position = (start_x + subtitle_width + 6, 46)
             try:
-                draw.text((start_x + l2_w + space, 34), emoji_char, font=emoji_font, fill=(0, 0, 0, 255), embedded_color=True)
-            except Exception:
-                draw.text((start_x + l2_w + space, 34), emoji_char, font=emoji_font, fill=(1, 87, 155, 255))
+                draw.text(emoji_position, emoji_char, font=emoji_font, fill=REMINDER_MUTED, anchor="lm", embedded_color=True)
+            except (OSError, ValueError):
+                draw.text(emoji_position, emoji_char, font=emoji_font, fill=REMINDER_MUTED, anchor="lm")
 
     if sys.platform != "win32":
         return raw
@@ -758,15 +811,8 @@ class MascotOverlay:
 
         self.w = 340
         self.h = 450
-        self.sw = self.win.winfo_screenwidth()
-        self.sh = self.win.winfo_screenheight()
-
-        self.target_x = (self.sw - self.w) // 2
-        self.target_y = (self.sh - self.h) // 2
-        self.curr_x = self.sw
-        self.curr_y = self.target_y
-        self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
         self.win.withdraw()
+        self.win.geometry(f"{self.w}x{self.h}")
 
         self.canvas = tk.Canvas(
             self.win, width=self.w, height=self.h,
@@ -782,32 +828,25 @@ class MascotOverlay:
         initial_img = self.frames[0] if self.frames else None
         self.char_id = self.canvas.create_image(self.w // 2, 285, image=initial_img)
 
-        # Full-Color Antialiased Speech Bubble (with Windows Color Emojis)
         self.bubble_photo = None
         self.bubble_item = self.canvas.create_image(self.w // 2, 45, image=None)
 
-        # Action Buttons (Modern Flat Pill Buttons, No Clunky 3D Borders)
-        self.btn_frame_w = tk.Frame(self.win, bg=overlay_bg)
-        self.btn_yes = tk.Button(
-            self.btn_frame_w, text="💧 Drink (YES)",
-            font=("Segoe UI", 9, "bold"),
-            bg=OCEAN_BLUE, fg="#FFFFFF",
-            activebackground=OCEAN_DARK, activeforeground="#FFFFFF",
-            relief="flat", bd=0, cursor="hand2",
-            padx=14, pady=5, command=self.on_yes
-        )
-        self.btn_yes.pack(side="left", padx=4)
+        style = ttk.Style(self.win)
+        for name, background, foreground, hover in (
+            ("ReminderLog.TButton", "#A5E2FF", REMINDER_BG, "#D6F2FF"),
+            ("ReminderLater.TButton", "#263D59", REMINDER_TEXT, "#375676"),
+        ):
+            style.configure(name, background=background, foreground=foreground, padding=(14, 7),
+                            font="TkDefaultFont", bordercolor=REMINDER_BORDER,
+                            lightcolor=background, darkcolor=background, focuscolor=foreground)
+            style.map(name, background=[("pressed", hover), ("active", hover)])
 
-        self.btn_later = tk.Button(
-            self.btn_frame_w, text="Remind later",
-            font=("Segoe UI", 9),
-            bg="#FFFFFF", fg=TEXT_SECONDARY,
-            activebackground="#F0F9FF", activeforeground=TEXT_DARK,
-            highlightthickness=1, highlightbackground=CARD_BORDER,
-            relief="flat", bd=0, cursor="hand2",
-            padx=10, pady=4, command=self.on_later
-        )
-        self.btn_later.pack(side="left", padx=4)
+        self.btn_frame_w = tk.Frame(self.win, bg=REMINDER_BG, padx=6, pady=5,
+                                    highlightthickness=1, highlightbackground=REMINDER_BORDER)
+        ttk.Button(self.btn_frame_w, text="Log a glass", style="ReminderLog.TButton",
+                   cursor="hand2", command=self.on_yes).pack(side="left", padx=(0, 6))
+        ttk.Button(self.btn_frame_w, text="Remind me later", style="ReminderLater.TButton",
+                   cursor="hand2", command=self.on_later).pack(side="left")
 
         self.btn_window = self.canvas.create_window(self.w // 2, 115, window=self.btn_frame_w)
 
@@ -883,14 +922,21 @@ class MascotOverlay:
             self._show_frame(0)
             self._position_character(285)
 
-        self.curr_x = self.sw
-        self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
+        left, top, right, bottom = screen_work_area(self.win)
+        self.target_x = left + max(0, (right - left - self.w) // 2)
+        self.target_y = top + max(0, (bottom - top - self.h) // 2)
+        self.exit_x = left - self.w - 50
+        self.curr_x = right
+        self._move_window()
         self.win.deiconify()
         self.win.lift()
         self.win.wm_attributes("-topmost", True)
 
         self._cycle_walk()
         self._walk_in_step()
+
+    def _move_window(self):
+        self.win.geometry(f"+{self.curr_x}+{self.target_y}")
 
     def _cycle_walk(self):
         if not self.is_active or not self.frames:
@@ -911,13 +957,13 @@ class MascotOverlay:
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
             if self.char_id:
                 self._position_character(285 + bob)
-            self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
+            self._move_window()
             self.move_job = self.win.after(22, self._walk_in_step)
         else:
             self.curr_x = self.target_x
             if self.char_id:
                 self._position_character(285)
-            self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
+            self._move_window()
 
             if self.anim_job:
                 self.win.after_cancel(self.anim_job)
@@ -982,13 +1028,13 @@ class MascotOverlay:
         if not self.is_active:
             return
         speed = 7
-        if self.curr_x > -self.w - 50:
+        if self.curr_x > self.exit_x:
             self.curr_x -= speed
             self.total_ticks += 1
             bob = int(math.sin(self.total_ticks * 0.28) * 4)
             if self.char_id:
                 self._position_character(285 + bob)
-            self.win.geometry(f"{self.w}x{self.h}+{self.curr_x}+{self.target_y}")
+            self._move_window()
             self.move_job = self.win.after(22, self._walk_out_step)
         else:
             if self.anim_job:
@@ -1577,10 +1623,9 @@ class WatertimeApp:
                 self.canvas_chart.create_oval(cx - 2, base_y + 14, cx + 2, base_y + 18, fill=OCEAN_BLUE, outline="")
 
     def _center_window(self, w, h):
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        x = (sw - w) // 2
-        y = (sh - h) // 2
+        left, top, right, bottom = screen_work_area(self.root)
+        x = left + max(0, (right - left - w) // 2)
+        y = top + max(0, (bottom - top - h) // 2)
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     def on_name_changed(self, event=None):
@@ -1692,6 +1737,7 @@ class WatertimeApp:
     def show_quick_toast(self, text: str):
         try:
             toast = tk.Toplevel(self.root)
+            toast.withdraw()
             toast.overrideredirect(True)
             toast.wm_attributes("-topmost", True)
             try:
@@ -1708,13 +1754,13 @@ class WatertimeApp:
             lbl.pack()
 
             toast.update_idletasks()
-            tw = toast.winfo_width()
-            th = toast.winfo_height()
-            sw = toast.winfo_screenwidth()
-            sh = toast.winfo_screenheight()
-            x = sw - tw - 24
-            y = sh - th - 55
+            tw = toast.winfo_reqwidth()
+            th = toast.winfo_reqheight()
+            left, top, right, bottom = screen_work_area(toast)
+            x = max(left, right - tw - 24)
+            y = max(top, bottom - th - (24 if sys.platform == "win32" else 55))
             toast.geometry(f"+{x}+{y}")
+            toast.deiconify()
             toast.after(1600, toast.destroy)
         except Exception:
             pass
