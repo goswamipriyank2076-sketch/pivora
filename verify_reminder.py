@@ -51,12 +51,16 @@ with tempfile.TemporaryDirectory() as temporary:
         x, y = mascot.win.winfo_rootx(), mascot.win.winfo_rooty()
         import sys
         if sys.platform == "darwin":
-            shot = ImageGrab.grab().convert("RGB")
-            scale_x = shot.width / root.winfo_screenwidth()
-            scale_y = shot.height / root.winfo_screenheight()
-            shot = shot.crop(tuple(round(p) for p in (
-                (x - 12) * scale_x, (y - 5) * scale_y,
-                (x + mascot.w + 12) * scale_x, (y + mascot.h + 5) * scale_y)))
+            import time
+            deadline = time.monotonic() + 3
+            while True:
+                root.update()
+                shot = ImageGrab.grab().convert("RGB")
+                colors = shot.getcolors(shot.width * shot.height)
+                if any(n > 500 and r < 40 and 15 < g < 65 and g + 12 < b < 100
+                       for n, (r, g, b) in colors) or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.1)
         else:
             shot = ImageGrab.grab(bbox=(x - 12, y - 5, x + mascot.w + 12, y + mascot.h + 5)).convert("RGB")
         shot.save("reminder.png")
