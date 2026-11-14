@@ -42,6 +42,10 @@ No Python or terminal required! Download the pre-built standalone executable for
 - **Windows:** Download `Pivora-Windows-x64.exe` and double-click to run!
 - **Linux:** Download `Pivora-Linux-x86_64`, mark as executable (`chmod +x Pivora-Linux-x86_64`), and run!
 
+The Linux release build targets Ubuntu 22.04 LTS (x86-64, glibc 2.35). If an older
+download fails with `GLIBC_2.38 not found`, use a release built with this baseline
+once available, or run from source on Ubuntu 22.04 or newer.
+
 ---
 
 ## 🛠️ For Developers
@@ -57,10 +61,12 @@ No Python or terminal required! Download the pre-built standalone executable for
   ```bash
   python watertime.py
   ```
-- **Linux:**
+- **Ubuntu 22.04 or newer** (from the project directory):
   ```bash
-  chmod +x run_watertime.sh
-  ./run_watertime.sh
+  sudo apt install python3-tk python3-venv
+  python3 -m venv .venv
+  .venv/bin/python -m pip install pystray Pillow
+  .venv/bin/python watertime.py
   ```
 
 ### Building Standalone Executables Locally
@@ -69,7 +75,8 @@ No Python or terminal required! Download the pre-built standalone executable for
   ```bash
   pyinstaller --noconsole --onefile --name "Pivora" --icon "app_icon.ico" --add-data "Animated Boy Walking and Drinking Water.gif;." --add-data "gif_frames;gif_frames" --add-data "app_icon.png;." watertime.py
   ```
-- **Linux:** Run `build_linux.sh`
+- **Linux:** Run `build_linux.sh` on Ubuntu 22.04 x86-64 to match the release
+  baseline. Builds made on newer systems can require a newer glibc.
 
 ---
 
