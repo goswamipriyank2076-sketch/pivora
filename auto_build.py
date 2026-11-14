@@ -32,6 +32,7 @@ def run_build():
         "--add-data", "Animated Boy Walking and Drinking Water.gif;.",
         "--add-data", "gif_frames;gif_frames",
         "--add-data", "app_icon.png;.",
+        "--add-data", "app_icon.ico;.",
         "watertime.py"
     ]
 
