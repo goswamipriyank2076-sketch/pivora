@@ -71,7 +71,7 @@ jobs:
       - name: Install system tray and launch test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libayatana-appindicator3-1 xvfb xauth xdotool x11-utils
+          sudo apt-get install -y libayatana-appindicator3-1 xvfb xauth xdotool x11-utils x11-xserver-utils
 
       - name: Install Python dependencies
         run: |
@@ -93,8 +93,9 @@ jobs:
 
       - name: Verify the dashboard and transparent mascot on Linux
         run: |
-          xvfb-run -a bash -e -c '
+          xvfb-run -a -s '-screen 0 1280x800x24 -noreset' bash -e -c '
             export HOME=$(mktemp -d)
+            xsetroot -solid "#263449"
             python -c "from datetime import date; import json; from pathlib import Path; (Path.home() / \".watertime_data.json\").write_text(json.dumps(dict(date=str(date.today()), work_hours_enabled=False)))"
             ./dist/Pivora-Linux-x86_64 &
             app_pid=$!
@@ -106,16 +107,17 @@ jobs:
             grep -Fx "StartupWMClass=Pivora" "$HOME/.local/share/applications/pivora.desktop"
             xprop -id "$dashboard" WM_CLASS | grep Pivora
             xprop -id "$dashboard" _NET_WM_ICON | grep "Icon"
-            mascot=$(timeout 15s xdotool search --sync --onlyvisible --name "^Pivora Mascot$")
-            for attempt in {1..20}; do
-              if xwininfo -id "$mascot" -shape | grep "Window shape extents:"; then
-                exit 0
-              fi
-              sleep 0.1
-            done
-            echo "The mascot window has no transparency mask" >&2
-            exit 1
+            xdotool windowunmap "$dashboard"
+            python .github/scripts/verify_linux_mascot.py
           '
+
+      - name: Upload Ubuntu reminder screenshot
+        if: ${{ !cancelled() && hashFiles('ubuntu-mascot.png') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: Pivora-Ubuntu-Mascot
+          path: ubuntu-mascot.png
+          if-no-files-found: error
 
       - name: Upload Linux Binary
         uses: actions/upload-artifact@v6
