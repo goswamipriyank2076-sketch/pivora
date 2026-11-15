@@ -11,6 +11,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import random
 import re
@@ -443,6 +444,10 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
 # ─────────────────────────────────────────────────────────────────
 # Data Management with History, Streaks & Goal
 # ─────────────────────────────────────────────────────────────────
+class DataSaveError(OSError):
+    """Saving the Pivora profile failed."""
+
+
 class WaterData:
     def __init__(self):
         self.data = self._load()
@@ -462,15 +467,10 @@ class WaterData:
                 raw.setdefault("reminder_style", DEFAULT_REMINDER_STYLE)
                 raw.setdefault("setup_completed", True)
                 raw.setdefault("work_hours_enabled", True)
-                if raw.get("work_start_hour") in (8, None):
+                if raw.get("work_start_hour") is None:
                     raw["work_start_hour"] = DEFAULT_WORK_START
-                else:
-                    raw.setdefault("work_start_hour", DEFAULT_WORK_START)
-
-                if raw.get("work_end_hour") in (20, 21, None):
+                if raw.get("work_end_hour") is None:
                     raw["work_end_hour"] = DEFAULT_WORK_END
-                else:
-                    raw.setdefault("work_end_hour", DEFAULT_WORK_END)
                 raw.setdefault("history", {})
                 return raw
             except Exception:
@@ -486,10 +486,10 @@ class WaterData:
         setup_completed = prev.get("setup_completed", True) if prev else False
         work_enabled = prev.get("work_hours_enabled", True) if prev else True
         work_start = prev.get("work_start_hour", DEFAULT_WORK_START) if prev else DEFAULT_WORK_START
-        if work_start == 8:
+        if work_start is None:
             work_start = DEFAULT_WORK_START
         work_end = prev.get("work_end_hour", DEFAULT_WORK_END) if prev else DEFAULT_WORK_END
-        if work_end in (20, 21):
+        if work_end is None:
             work_end = DEFAULT_WORK_END
         pause_on_meet = prev.get("pause_on_meeting", True) if prev else True
         history = dict(prev.get("history", {})) if prev else {}
@@ -513,49 +513,48 @@ class WaterData:
             "history": history
         }
 
-    def _save(self):
+    def _save(self, **changes):
+        updated = {**self.data, **changes}
+        temporary_path = None
         try:
-            DATA_FILE.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+            with tempfile.NamedTemporaryFile(dir=DATA_FILE.parent, delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+            temporary_path.write_text(json.dumps(updated, indent=2), encoding="utf-8")
+            temporary_path.replace(DATA_FILE)
+        except OSError as error:
+            raise DataSaveError("Could not save your changes. Please try again.") from error
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        self.data = updated
 
     def add_glass(self):
-        self._ensure_today()
-        self.data["glasses_count"] += 1
-        today = str(date.today())
-        if "history" not in self.data:
-            self.data["history"] = {}
-        self.data["history"][today] = self.data["glasses_count"]
-        keys = sorted(self.data["history"].keys())
-        if len(keys) > 30:
-            for old_k in keys[:-30]:
-                del self.data["history"][old_k]
-        self._save()
+        self._save_glass_count(self.count + 1)
 
     def undo_glass(self) -> bool:
-        self._ensure_today()
-        if self.data.get("glasses_count", 0) > 0:
-            self.data["glasses_count"] -= 1
-            today = str(date.today())
-            if "history" not in self.data:
-                self.data["history"] = {}
-            self.data["history"][today] = self.data["glasses_count"]
-            self._save()
+        count = self.count
+        if count > 0:
+            self._save_glass_count(count - 1)
             return True
         return False
 
     def set_glass_count(self, count: int):
         self._ensure_today()
-        self.data["glasses_count"] = max(0, int(count))
-        today = str(date.today())
-        if "history" not in self.data:
-            self.data["history"] = {}
-        self.data["history"][today] = self.data["glasses_count"]
-        self._save()
+        self._save_glass_count(max(0, int(count)))
+
+    def _save_glass_count(self, count: int):
+        history = {**self.data.get("history", {}), self.data["date"]: count}
+        history = {day: history[day] for day in sorted(history)[-30:]}
+        self._save(glasses_count=count, history=history)
 
     def reset(self):
-        self.data = self._fresh(str(date.today()), self.data)
-        self._save()
+        self._ensure_today()
+        history = dict(self.data.get("history", {}))
+        history.pop(self.data["date"], None)
+        self._save(glasses_count=0, history=history)
 
     def _ensure_today(self):
         today = str(date.today())
@@ -567,17 +566,16 @@ class WaterData:
         return self.data.get("user_name", DEFAULT_NAME)
 
     def set_user_name(self, name: str):
-        if name.strip():
-            self.data["user_name"] = name.strip()
-            self._save()
+        name = name.strip()
+        if name and name != self.user_name:
+            self._save(user_name=name)
 
     @property
     def interval_minutes(self):
         return self.data.get("interval_minutes", DEFAULT_INTERVAL_MINUTES)
 
     def set_interval(self, minutes: int):
-        self.data["interval_minutes"] = max(1, int(minutes))
-        self._save()
+        self._save(interval_minutes=max(1, int(minutes)))
 
     @property
     def count(self):
@@ -589,8 +587,7 @@ class WaterData:
         return self.data.get("goal", DEFAULT_GOAL)
 
     def set_goal(self, goal: int):
-        self.data["goal"] = max(1, int(goal))
-        self._save()
+        self._save(goal=max(1, int(goal)))
 
     @property
     def litres_drunk(self):
@@ -609,40 +606,48 @@ class WaterData:
         return self.data.get("work_hours_enabled", True)
 
     def set_work_hours_enabled(self, val: bool):
-        self.data["work_hours_enabled"] = bool(val)
-        self._save()
+        self._save(work_hours_enabled=bool(val))
 
     @property
     def work_start_hour(self):
         return self.data.get("work_start_hour", DEFAULT_WORK_START)
 
     def set_work_start_hour(self, h: int):
-        self.data["work_start_hour"] = int(h)
-        self._save()
+        self._save(work_start_hour=int(h))
 
     @property
     def work_end_hour(self):
         return self.data.get("work_end_hour", DEFAULT_WORK_END)
 
     def set_work_end_hour(self, h: int):
-        self.data["work_end_hour"] = int(h)
-        self._save()
+        self._save(work_end_hour=int(h))
+
+    def set_work_hours(self, start: int, end: int):
+        if (start, end) != (self.work_start_hour, self.work_end_hour):
+            self._save(work_start_hour=start, work_end_hour=end)
+
+    def within_active_hours(self, hour: int) -> bool:
+        if not self.work_hours_enabled:
+            return True
+        start = self.work_start_hour
+        end = self.work_end_hour
+        if start > end:
+            return hour >= start or hour < end
+        return start <= hour < end
 
     @property
     def pause_on_meeting(self):
         return self.data.get("pause_on_meeting", True)
 
     def set_pause_on_meeting(self, val: bool):
-        self.data["pause_on_meeting"] = bool(val)
-        self._save()
+        self._save(pause_on_meeting=bool(val))
 
     @property
     def snooze_interval_minutes(self):
         return self.data.get("snooze_interval_minutes", DEFAULT_SNOOZE_MINUTES)
 
     def set_snooze_interval(self, minutes: int):
-        self.data["snooze_interval_minutes"] = max(1, int(minutes))
-        self._save()
+        self._save(snooze_interval_minutes=max(1, int(minutes)))
 
     @property
     def reminder_style(self):
@@ -650,16 +655,19 @@ class WaterData:
 
     def set_reminder_style(self, style: str):
         if style in ("mascot", "compact"):
-            self.data["reminder_style"] = style
-            self._save()
+            self._save(reminder_style=style)
 
     @property
     def setup_completed(self):
         return self.data.get("setup_completed", False)
 
     def set_setup_completed(self, val: bool):
-        self.data["setup_completed"] = bool(val)
-        self._save()
+        self._save(setup_completed=bool(val))
+
+    def complete_setup(self, name, goal, interval, start, end, style, snooze):
+        self._save(user_name=name, goal=goal, interval_minutes=interval,
+                   work_start_hour=start, work_end_hour=end, reminder_style=style,
+                   snooze_interval_minutes=snooze, setup_completed=True)
 
     @property
     def streak(self):
@@ -1203,11 +1211,11 @@ class MascotOverlay:
             self.dismiss_job = self.win.after(20000, self.on_later)
 
     def on_yes(self):
+        was_below_goal = self.data.count < self.data.goal
+        self.data.add_glass()
         if self.dismiss_job:
             self.win.after_cancel(self.dismiss_job)
             self.dismiss_job = None
-        was_below_goal = self.data.count < self.data.goal
-        self.data.add_glass()
         self._last_logged = True
         self.canvas.itemconfigure(self.btn_window, state="hidden")
         if self.on_close:
@@ -1368,9 +1376,9 @@ class CompactReminderOverlay:
         self.dismiss_job = self.win.after(25000, self._handle_auto_dismiss)
 
     def _handle_log(self):
-        self.close()
         if self.on_log:
             self.on_log()
+        self.close()
 
     def _handle_snooze(self):
         snooze_mins = self.data.snooze_interval_minutes
@@ -1406,6 +1414,7 @@ class WatertimeApp:
 
         # Root Window
         self.root = tk.Tk(className="Pivora")
+        self.root.report_callback_exception = self._report_callback_exception
         if sys.platform == "linux":
             try:
                 install_linux_launcher()
@@ -1486,6 +1495,12 @@ class WatertimeApp:
 
         # Timer loop
         self._check_timer_loop()
+
+    def _report_callback_exception(self, exc_type, error, traceback):
+        if isinstance(error, DataSaveError):
+            messagebox.showerror("Pivora", str(error), parent=self.root)
+            return
+        tk.Tk.report_callback_exception(self.root, exc_type, error, traceback)
 
     def _init_theme(self):
         style = ttk.Style()
@@ -2117,16 +2132,14 @@ class WatertimeApp:
         self.show_quick_toast(f"Meeting Auto-Pause: {status}")
 
     def on_work_hours_changed(self, event=None):
+        start_h = parse_12h_hour(self.combo_h_start.get(), self.data.work_start_hour)
+        end_h = parse_12h_hour(self.combo_h_end.get(), self.data.work_end_hour)
         try:
-            start_h = parse_12h_hour(self.combo_h_start.get(), self.data.work_start_hour)
-            end_h = parse_12h_hour(self.combo_h_end.get(), self.data.work_end_hour)
-            self.data.set_work_start_hour(start_h)
-            self.data.set_work_end_hour(end_h)
-            self.combo_h_start.set(hour_to_12h(start_h))
-            self.combo_h_end.set(hour_to_12h(end_h))
-            self._update_status_label()
-        except Exception:
-            pass
+            self.data.set_work_hours(start_h, end_h)
+        finally:
+            self.combo_h_start.set(hour_to_12h(self.data.work_start_hour))
+            self.combo_h_end.set(hour_to_12h(self.data.work_end_hour))
+        self._update_status_label()
 
     def toggle_autostart(self):
         try:
@@ -2371,15 +2384,12 @@ class WatertimeApp:
             self.btn_resume.pack_forget()
 
         # Check Active Hours
-        if self.data.work_hours_enabled:
-            s_h = self.data.work_start_hour
-            e_h = self.data.work_end_hour
-            if not (s_h <= curr_hour < e_h):
-                resumes_str = hour_to_12h(s_h)
-                self.lbl_status.config(text=f"● Outside Active Hours (Resumes at {resumes_str})", fg=TEXT_MUTED)
-                if self.tray:
-                    self.tray.title = f"Pivora [Quiet Hours until {resumes_str}] • {self.data.count}/{self.data.goal}"
-                return
+        if not self.data.within_active_hours(curr_hour):
+            resumes_str = hour_to_12h(self.data.work_start_hour)
+            self.lbl_status.config(text=f"● Outside Active Hours (Resumes at {resumes_str})", fg=TEXT_MUTED)
+            if self.tray:
+                self.tray.title = f"Pivora [Quiet Hours until {resumes_str}] • {self.data.count}/{self.data.goal}"
+            return
 
         # Check Meeting / Screen Share Suppression
         if self.data.pause_on_meeting:
@@ -2428,7 +2438,8 @@ class WatertimeApp:
                 pass
 
     def trigger_reminder(self, force=False):
-        self.on_name_changed()
+        if force:
+            self.on_name_changed()
         if not force and self.data.count >= self.data.goal:
             return
         if self.data.pause_on_meeting:
@@ -2665,14 +2676,7 @@ class WatertimeApp:
 
         def save_and_close():
             nm, g_val, i_val, s_h, e_h, st_val, sn_val = read_form()
-            self.data.set_user_name(nm)
-            self.data.set_goal(g_val)
-            self.data.set_interval(i_val)
-            self.data.set_work_start_hour(s_h)
-            self.data.set_work_end_hour(e_h)
-            self.data.set_reminder_style(st_val)
-            self.data.set_snooze_interval(sn_val)
-            self.data.set_setup_completed(True)
+            self.data.complete_setup(nm, g_val, i_val, s_h, e_h, st_val, sn_val)
 
             self.entry_name.delete(0, "end")
             self.entry_name.insert(0, nm)
@@ -2808,13 +2812,10 @@ class WatertimeApp:
                 self.dnd_until = 0
 
         # Check Working Hours
-        if self.data.work_hours_enabled:
-            s_h = self.data.work_start_hour
-            e_h = self.data.work_end_hour
-            if not (s_h <= curr_hour < e_h):
-                self._update_status_label()
-                self.root.after(1000, self._check_timer_loop)
-                return
+        if not self.data.within_active_hours(curr_hour):
+            self._update_status_label()
+            self.root.after(1000, self._check_timer_loop)
+            return
 
         # Check Meeting / Screen Share Suppression
         if self.data.pause_on_meeting:
@@ -2840,10 +2841,7 @@ class WatertimeApp:
 
     def quit_app(self, icon=None, item=None):
         global _instance_socket
-        try:
-            self.on_name_changed()
-        except Exception:
-            pass
+        self.on_name_changed()
         if self.tray:
             try:
                 self.tray.stop()
@@ -2872,9 +2870,7 @@ class WatertimeApp:
                 self.root.after(300, lambda: self.open_quick_setup(is_first_run=True))
             if self.data.count < self.data.goal:
                 curr_hour = time.localtime().tm_hour
-                is_active_time = True
-                if self.data.work_hours_enabled:
-                    is_active_time = (self.data.work_start_hour <= curr_hour < self.data.work_end_hour)
+                is_active_time = self.data.within_active_hours(curr_hour)
                 if is_active_time:
                     if self.data.pause_on_meeting:
                         in_meet, _ = is_meeting_or_screenshare_active()
