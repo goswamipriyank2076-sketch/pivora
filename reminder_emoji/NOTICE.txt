@@ -1,0 +1,2 @@
+Unmodified reminder icons from Google Noto Emoji (Apache License 2.0).
+Source: https://github.com/googlefonts/noto-emoji/tree/v2020-09-16-unicode13_1/png/128

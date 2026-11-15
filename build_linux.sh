@@ -19,6 +19,7 @@ pyinstaller --noconsole --onefile \
     --hidden-import PIL._imagingtk \
     --add-data "Animated Boy Walking and Drinking Water.gif:." \
     --add-data "gif_frames:gif_frames" \
+    --add-data "reminder_emoji:reminder_emoji" \
     --add-data "app_icon.png:." \
     watertime.py
 

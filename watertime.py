@@ -19,6 +19,8 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 from datetime import date, timedelta
+from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 # Ensure Windows Taskbar & Action Center recognize Pivora rather than Python host
@@ -320,12 +322,36 @@ def _load_fonts(text_size: int, emoji_size: int = None):
             e_font = None
     return t_font, e_font
 
+
+@lru_cache(maxsize=32)
+def _load_reminder_emoji(codepoint: int):
+    path = BASE_DIR / "reminder_emoji" / f"emoji_u{codepoint:x}.png"
+    try:
+        with Image.open(path) as source:
+            icon = source.convert("RGBA")
+    except FileNotFoundError:
+        return None
+    icon = icon.crop(icon.getbbox())
+    icon.thumbnail((14, 14), Image.Resampling.LANCZOS)
+    return icon
+
+
+def _reminder_emoji(segment: str, is_emoji: bool):
+    if is_emoji and sys.platform == "linux":
+        return _load_reminder_emoji(ord(segment[0]))
+
+
+def _segment_width(draw, segment, is_emoji, text_font, emoji_font):
+    icon = _reminder_emoji(segment, is_emoji)
+    if icon is not None:
+        return icon.width + 1
+    font = emoji_font if is_emoji and emoji_font else text_font
+    return draw.textlength(segment, font=font)
+
+
 def measure_text_with_emojis(draw, text: str, text_font, emoji_font):
-    total = 0.0
-    for seg, is_emoji in split_text_emojis(text):
-        f = emoji_font if (is_emoji and emoji_font) else text_font
-        total += draw.textlength(seg, font=f)
-    return total
+    return sum(_segment_width(draw, seg, is_emoji, text_font, emoji_font)
+               for seg, is_emoji in split_text_emojis(text))
 
 def fit_line_with_emojis(line: str, font, emoji_font, max_width: float, draw):
     line = " ".join(line.split())
@@ -334,8 +360,7 @@ def fit_line_with_emojis(line: str, font, emoji_font, max_width: float, draw):
     shortened = []
     used = draw.textlength("…", font=font)
     for seg, is_emoji in split_text_emojis(line):
-        f = emoji_font if (is_emoji and emoji_font) else font
-        seg_w = draw.textlength(seg, font=f)
+        seg_w = _segment_width(draw, seg, is_emoji, font, emoji_font)
         if used + seg_w <= max_width:
             shortened.append(seg)
             used += seg_w
@@ -350,7 +375,8 @@ def fit_line_with_emojis(line: str, font, emoji_font, max_width: float, draw):
             break
     return "".join(shortened).rstrip() + "…"
 
-def draw_text_with_emojis(draw, x: float, y: float, text: str, text_font, emoji_font, fill_text, fill_emoji, anchor: str = "lm"):
+def draw_text_with_emojis(image, x: float, y: float, text: str, text_font, emoji_font, fill_text, fill_emoji, anchor: str = "lm"):
+    draw = ImageDraw.Draw(image)
     total_w = measure_text_with_emojis(draw, text, text_font, emoji_font)
     if anchor == "mm":
         curr_x = x - total_w / 2
@@ -363,6 +389,11 @@ def draw_text_with_emojis(draw, x: float, y: float, text: str, text_font, emoji_
     ref_mid = (ref_box[1] + ref_box[3]) / 2.0
 
     for seg, is_emoji in split_text_emojis(text):
+        icon = _reminder_emoji(seg, is_emoji)
+        if icon is not None:
+            image.alpha_composite(icon, (round(curr_x), round(y + ref_mid - icon.height / 2)))
+            curr_x += icon.width + 1
+            continue
         if is_emoji and emoji_font:
             seg_w = draw.textlength(seg, font=emoji_font)
             e_box = draw.textbbox((0, 0), seg, font=emoji_font, anchor="lm")
@@ -389,7 +420,7 @@ def render_pill_button(text: str, bg: str, fg: str, border: str = None, w: int =
         d.rounded_rectangle([0, 0, w - 1, h - 1], radius=r, fill=bg)
 
     btn_font, btn_emoji_font = _load_fonts(10, 11)
-    draw_text_with_emojis(d, w // 2, h // 2 - 1, text, btn_font, btn_emoji_font, fg, fg, anchor="mm")
+    draw_text_with_emojis(raw, w // 2, h // 2 - 1, text, btn_font, btn_emoji_font, fg, fg, anchor="mm")
 
     c_rgb = tuple(int(bg_canvas.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
     out = Image.new("RGB", (w, h), c_rgb)
@@ -422,7 +453,7 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
     line_width = bx2 - bx1 - 24
     title = fit_line_with_emojis(title, title_font, emoji_title_font, line_width, draw)
     ty = 36 if centered else 22
-    draw_text_with_emojis(draw, cx, ty, title, title_font, emoji_title_font, REMINDER_TEXT, REMINDER_TEXT, anchor="mm")
+    draw_text_with_emojis(raw, cx, ty, title, title_font, emoji_title_font, REMINDER_TEXT, REMINDER_TEXT, anchor="mm")
 
     if subtitle or emoji_char:
         full_sub = subtitle
@@ -431,7 +462,7 @@ def render_speech_bubble_image(title: str, subtitle: str = "", emoji_char: str =
 
         full_sub = fit_line_with_emojis(full_sub, text_font, emoji_text_font, line_width, draw)
         sy = 60 if centered else 43
-        draw_text_with_emojis(draw, cx, sy, full_sub, text_font, emoji_text_font, REMINDER_MUTED, REMINDER_MUTED, anchor="mm")
+        draw_text_with_emojis(raw, cx, sy, full_sub, text_font, emoji_text_font, REMINDER_MUTED, REMINDER_MUTED, anchor="mm")
 
     if sys.platform != "win32":
         return raw
@@ -560,6 +591,11 @@ class WaterData:
         today = str(date.today())
         if self.data.get("date") != today:
             self.data = self._fresh(today, self.data)
+
+    @property
+    def day(self):
+        self._ensure_today()
+        return self.data["date"]
 
     @property
     def user_name(self):
@@ -957,6 +993,12 @@ def load_gif_frames(master, target_h=320):
     return tk_frames, frame_shapes
 
 
+@dataclass(frozen=True)
+class ReminderPreview:
+    name: str
+    snooze_minutes: int
+
+
 class MascotOverlay:
     """Borderless, transparent window where 3D character walks in and prompts hydration."""
 
@@ -969,6 +1011,7 @@ class MascotOverlay:
         self.on_close = on_close
         self.on_snooze = on_snooze
         self.is_active = False
+        self.preview = None
         self.x11_display = None
         self.x11_frame = None
         self.bubble_shape = []
@@ -1055,7 +1098,7 @@ class MascotOverlay:
         self.total_ticks = 0
 
     def _refresh_pill_buttons(self):
-        snooze_mins = self.data.snooze_interval_minutes
+        snooze_mins = self.preview.snooze_minutes if self.preview else self.data.snooze_interval_minutes
         later_label = f"Remind in {snooze_mins} min"
 
         self.pill_yes_normal = ImageTk.PhotoImage(render_pill_button("Log a glass", bg="#FFFFFF", fg="#0284C7", border="#BAE6FD", w=115, h=28, bg_canvas=REMINDER_BG), master=self.win)
@@ -1121,11 +1164,12 @@ class MascotOverlay:
         self.canvas.coords(self.char_id, self.w // 2, y)
         self._update_x11_shape()
 
-    def trigger(self, force=False):
+    def trigger(self, force=False, *, preview=None):
         if self.is_active:
             return
-        if not force and self.data.count >= self.data.goal:
+        if preview is None and not force and self.data.count >= self.data.goal:
             return
+        self.preview = preview
         self.is_active = True
         self._last_logged = False
         self.step_idx = 0
@@ -1202,7 +1246,8 @@ class MascotOverlay:
                 self._show_frame(0)
 
             t, s, e = random.choice(MASCOT_QUOTES)
-            self._set_bubble(t.format(name=self.data.user_name), s.format(name=self.data.user_name), e, centered=False)
+            name = self.preview.name if self.preview else self.data.user_name
+            self._set_bubble(t.format(name=name), s.format(name=name), e, centered=False)
 
             self.canvas.itemconfigure(self.bubble_item, state="normal")
             self.canvas.itemconfigure(self.btn_window, state="normal")
@@ -1211,6 +1256,9 @@ class MascotOverlay:
             self.dismiss_job = self.win.after(20000, self.on_later)
 
     def on_yes(self):
+        if self.preview:
+            self._dismiss_preview()
+            return
         was_below_goal = self.data.count < self.data.goal
         self.data.add_glass()
         if self.dismiss_job:
@@ -1228,6 +1276,9 @@ class MascotOverlay:
             self.win.after(1100, self._walk_out)
 
     def on_later(self):
+        if self.preview:
+            self._dismiss_preview()
+            return
         if self.dismiss_job:
             self.win.after_cancel(self.dismiss_job)
             self.dismiss_job = None
@@ -1239,6 +1290,12 @@ class MascotOverlay:
         if self.on_snooze:
             self.on_snooze(snooze_mins)
         self.win.after(1400, self._walk_out)
+
+    def _dismiss_preview(self):
+        if self.dismiss_job:
+            self.win.after_cancel(self.dismiss_job)
+            self.dismiss_job = None
+        self._walk_out()
 
     def _walk_out(self):
         self.canvas.itemconfigure(self.bubble_item, state="hidden")
@@ -1267,7 +1324,8 @@ class MascotOverlay:
                 self.anim_job = None
             self.win.withdraw()
             self.is_active = False
-            if self.on_close:
+            preview, self.preview = self.preview, None
+            if self.on_close and preview is None:
                 self.on_close(logged=False)
 
 
@@ -1279,6 +1337,7 @@ class CompactReminderOverlay:
         self.data = data
         self.on_log = on_log
         self.on_snooze = on_snooze
+        self.preview = None
         self.on_close = on_close
         self.is_active = False
         self.dismiss_job = None
@@ -1347,19 +1406,20 @@ class CompactReminderOverlay:
         self.btn_snooze.bind("<Enter>", lambda e: self.btn_snooze.configure(bg="#E0F2FE"))
         self.btn_snooze.bind("<Leave>", lambda e: self.btn_snooze.configure(bg="#F0F9FF"))
 
-    def trigger(self, force=False):
+    def trigger(self, force=False, *, preview=None):
         if self.is_active:
             return
-        if not force and self.data.count >= self.data.goal:
+        if preview is None and not force and self.data.count >= self.data.goal:
             return
 
         self.is_active = True
-        name = self.data.user_name
+        self.preview = preview
+        name = preview.name if preview else self.data.user_name
         self.lbl_msg.config(text=f"Hey {name}, time for fresh water!")
         self.lbl_sub.config(
             text=f"Today: {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L) • Stay hydrated!"
         )
-        snooze_mins = self.data.snooze_interval_minutes
+        snooze_mins = preview.snooze_minutes if preview else self.data.snooze_interval_minutes
         self.btn_snooze.config(text=f"Remind in {snooze_mins} min")
 
         self.win.update_idletasks()
@@ -1376,21 +1436,19 @@ class CompactReminderOverlay:
         self.dismiss_job = self.win.after(25000, self._handle_auto_dismiss)
 
     def _handle_log(self):
-        if self.on_log:
+        if self.on_log and self.preview is None:
             self.on_log()
         self.close()
 
     def _handle_snooze(self):
+        preview = self.preview
         snooze_mins = self.data.snooze_interval_minutes
         self.close()
-        if self.on_snooze:
+        if self.on_snooze and preview is None:
             self.on_snooze(snooze_mins)
 
     def _handle_auto_dismiss(self):
-        snooze_mins = self.data.snooze_interval_minutes
-        self.close()
-        if self.on_snooze:
-            self.on_snooze(snooze_mins)
+        self._handle_snooze()
 
     def close(self):
         if self.dismiss_job:
@@ -1398,7 +1456,8 @@ class CompactReminderOverlay:
             self.dismiss_job = None
         self.win.withdraw()
         self.is_active = False
-        if self.on_close:
+        preview, self.preview = self.preview, None
+        if self.on_close and preview is None:
             self.on_close()
 
 
@@ -1408,6 +1467,7 @@ class CompactReminderOverlay:
 class WatertimeApp:
     def __init__(self):
         self.data = WaterData()
+        self._displayed_day = self.data.day
         self.dnd_until = 0
         self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
         self.active_tab = "tracker"
@@ -1870,8 +1930,8 @@ class WatertimeApp:
         # Meeting Mode & Screen Share Auto-Pause
         self.var_meeting_mode = tk.BooleanVar(value=self.data.pause_on_meeting)
         meeting_text = (
-            "Auto-pause during meetings (Windows only)" if IS_MACOS
-            else "Auto-pause mascot during meetings & screen share"
+            "Auto-pause during meetings & screen share" if sys.platform == "win32"
+            else "Auto-pause during meetings (Windows only)"
         )
         chk_meeting = tk.Checkbutton(
             card_p2, text=meeting_text,
@@ -1882,7 +1942,7 @@ class WatertimeApp:
         )
         chk_meeting.pack(anchor="w", pady=(3, 0))
 
-        if IS_MACOS:
+        if sys.platform != "win32":
             chk_meeting.configure(state="disabled")
         else:
             tk.Label(
@@ -1932,10 +1992,12 @@ class WatertimeApp:
         )
         chk_autostart.pack(anchor="w")
 
-        shortcut_text = (
-            "Log a glass from the Pivora menu bar icon" if IS_MACOS
-            else "Hotkey: Ctrl + Alt + W  —  Log a glass from anywhere"
-        )
+        if sys.platform == "win32":
+            shortcut_text = "Hotkey: Ctrl + Alt + W  —  Log a glass from anywhere"
+        elif IS_MACOS:
+            shortcut_text = "Log a glass from the Pivora menu bar icon"
+        else:
+            shortcut_text = "Log a glass from the Pivora system tray icon"
         tk.Label(
             card_p3, text=shortcut_text,
             font=("Segoe UI", 8), fg=TEXT_MUTED, bg=CARD_BG
@@ -2175,6 +2237,8 @@ class WatertimeApp:
             found_key = next((k for k, v in self.snooze_options.items() if v == mins), f"{mins} mins")
             self.combo_snooze.set(found_key)
             self.mascot._refresh_pill_buttons()
+            if self.tray:
+                self.tray.update_menu()
             self.show_quick_toast(f"Snooze time set to {mins} min")
 
     def on_style_selected(self, event=None):
@@ -2423,6 +2487,7 @@ class WatertimeApp:
             self.tray.title = f"Pivora — {self.data.count}/{self.data.goal} glasses ({self.data.litres_drunk:.2f}L) • Next in {time_left_str}"
 
     def _refresh_ui_progress(self):
+        self._displayed_day = self.data.day
         self.lbl_greeting.config(text=self._get_greeting_str())
         self.lbl_hero_litres.config(text=f"{self.data.litres_drunk:.2f} L")
         self.lbl_hero_sub.config(text=f"{self.data.count} of {self.data.goal} glasses today ({self.data.percentage}%)")
@@ -2440,7 +2505,9 @@ class WatertimeApp:
     def trigger_reminder(self, force=False):
         if force:
             self.on_name_changed()
-        if not force and self.data.count >= self.data.goal:
+        elif (self.dnd_until > time.time()
+              or not self.data.within_active_hours(time.localtime().tm_hour)
+              or self.data.count >= self.data.goal):
             return
         if self.data.pause_on_meeting:
             in_meet, desc = is_meeting_or_screenshare_active()
@@ -2450,14 +2517,17 @@ class WatertimeApp:
                 else:
                     return
 
-        if self.data.reminder_style == "compact":
+        self._show_reminder(self.data.reminder_style, force=force)
+
+    def _show_reminder(self, style, *, force=False, preview=None):
+        if style == "compact":
             if self.mascot.is_active:
                 return
-            self.compact_overlay.trigger(force=force)
+            self.compact_overlay.trigger(force=force, preview=preview)
         else:
             if self.compact_overlay.is_active:
                 return
-            self.mascot.trigger(force=force)
+            self.mascot.trigger(force=force, preview=preview)
 
     def test_mascot_now(self, force=False):
         self.trigger_reminder(force=force)
@@ -2492,13 +2562,17 @@ class WatertimeApp:
         # Minimizing the dashboard can commit the interval field via FocusOut.
         if mins != self.data.interval_minutes:
             self.data.set_interval(mins)
-            if self.dnd_until <= time.time():
-                self.next_reminder_time = time.time() + (mins * 60)
+            self._schedule_next_reminder()
 
         current_mins = self.data.interval_minutes
         found_key = next((k for k, v in self.interval_options.items() if v == current_mins), f"{current_mins} mins")
         self.combo_interval.set(found_key)
         self._update_status_label()
+
+    def _schedule_next_reminder(self):
+        now = time.time()
+        if self.dnd_until <= now:
+            self.next_reminder_time = now + self.data.interval_minutes * 60
 
     def _start_ipc_listener(self):
         global _instance_socket
@@ -2573,7 +2647,7 @@ class WatertimeApp:
         }
         combo_goal = ttk.Combobox(r_goal, style="Pivora.TCombobox", values=list(goal_opts.keys()), width=21, state="normal", font=("Segoe UI", 9))
         curr_goal = self.data.goal
-        found_g = next((k for k, v in goal_opts.items() if v == curr_goal), "8 glasses (2.0 L) · Recommended")
+        found_g = next((k for k, v in goal_opts.items() if v == curr_goal), f"{curr_goal} glasses")
         combo_goal.set(found_g)
         combo_goal.pack(side="left")
 
@@ -2668,15 +2742,18 @@ class WatertimeApp:
             return nm, g_val, i_val, s_h, e_h, st_val, sn_val
 
         def preview_reminder():
-            nm, g_val, i_val, s_h, e_h, st_val, sn_val = read_form()
-            self.data.set_user_name(nm)
-            self.data.set_reminder_style(st_val)
-            self.data.set_snooze_interval(sn_val)
-            self.trigger_reminder(force=True)
+            nm, _, _, _, _, st_val, sn_val = read_form()
+            self._show_reminder(st_val, preview=ReminderPreview(nm, sn_val))
 
         def save_and_close():
             nm, g_val, i_val, s_h, e_h, st_val, sn_val = read_form()
+            old_interval = self.data.interval_minutes
+            old_snooze = self.data.snooze_interval_minutes
             self.data.complete_setup(nm, g_val, i_val, s_h, e_h, st_val, sn_val)
+            if is_first_run or i_val != old_interval:
+                self._schedule_next_reminder()
+            if self.tray and sn_val != old_snooze:
+                self.tray.update_menu()
 
             self.entry_name.delete(0, "end")
             self.entry_name.insert(0, nm)
@@ -2753,9 +2830,11 @@ class WatertimeApp:
                 make_interval_item("60 mins", 60),
             )
 
-            snooze_mins = self.data.snooze_interval_minutes
             snooze_menu = pystray.Menu(
-                make_snooze_item(f"Snooze {snooze_mins}m (Default)", snooze_mins),
+                pystray.MenuItem(
+                    lambda item: f"Snooze {self.data.snooze_interval_minutes}m (Default)",
+                    lambda icon, item: self.root.after(0, lambda: self.set_snooze(self.data.snooze_interval_minutes)),
+                ),
                 make_snooze_item("Snooze 30 mins", 30),
                 make_snooze_item("Snooze 1 hour", 60),
                 make_snooze_item("Snooze 2 hours", 120),
@@ -2767,7 +2846,9 @@ class WatertimeApp:
                 make_style_item("Compact Popup", "compact"),
             )
 
-            quick_log_label = "Quick Log 1 Glass" if IS_MACOS else "Quick Log 1 Glass (Ctrl+Alt+W)"
+            quick_log_label = "Quick Log 1 Glass"
+            if sys.platform == "win32":
+                quick_log_label += " (Ctrl+Alt+W)"
             menu = pystray.Menu(
                 pystray.MenuItem("Pivora Active", None, enabled=False),
                 pystray.Menu.SEPARATOR,
@@ -2778,7 +2859,7 @@ class WatertimeApp:
                 pystray.MenuItem("Reminder Style", style_menu),
                 pystray.MenuItem("Change Interval", interval_menu),
                 pystray.MenuItem("Preferences & Schedule", lambda icon, item: self.root.after(0, lambda: self.show_dashboard(tab="pref"))),
-                pystray.MenuItem("Auto-Pause in Meetings", lambda icon, item: self.root.after(0, self.toggle_meeting_mode_tray), checked=lambda item: self.data.pause_on_meeting, visible=not IS_MACOS),
+                pystray.MenuItem("Auto-Pause in Meetings", lambda icon, item: self.root.after(0, self.toggle_meeting_mode_tray), checked=lambda item: self.data.pause_on_meeting, visible=sys.platform == "win32"),
                 pystray.MenuItem("Reset Today's Count", lambda icon, item: self.root.after(0, self.reset_count)),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Quit Pivora", lambda icon, item: self.root.after(0, self.quit_app))
@@ -2799,6 +2880,8 @@ class WatertimeApp:
         self.root.after(0, self._refresh_ui_progress)
 
     def _check_timer_loop(self):
+        if self.data.day != self._displayed_day:
+            self._refresh_ui_progress()
         now = time.time()
         curr_hour = time.localtime().tm_hour
 
@@ -2831,8 +2914,8 @@ class WatertimeApp:
             self.root.after(2000, self._check_timer_loop)
             return
 
-        # Check interval trigger
-        if now >= self.next_reminder_time:
+        # Keep a due reminder pending while another reminder or preview is visible.
+        if now >= self.next_reminder_time and not (self.mascot.is_active or self.compact_overlay.is_active):
             self.trigger_reminder()
             self.next_reminder_time = time.time() + (self.data.interval_minutes * 60)
 
@@ -2868,7 +2951,7 @@ class WatertimeApp:
             self._show_dashboard_internal()
             if not self.data.setup_completed:
                 self.root.after(300, lambda: self.open_quick_setup(is_first_run=True))
-            if self.data.count < self.data.goal:
+            elif self.data.count < self.data.goal:
                 curr_hour = time.localtime().tm_hour
                 is_active_time = self.data.within_active_hours(curr_hour)
                 if is_active_time:
